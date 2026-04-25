@@ -243,24 +243,6 @@ export default function GameBoard({ gameState, playerId, playerNames, actions })
           isMyTurn={isMyTurn}
           onMoveWildcard={handleMoveWildcard}
         />
-
-        {/* Game log */}
-        <div style={{
-          marginTop: 12,
-          background: '#fff',
-          borderRadius: 10,
-          border: '1px solid #e5e7eb',
-          padding: '8px 12px',
-          maxHeight: 100,
-          overflowY: 'auto',
-        }}>
-          <div style={{ fontSize: 10, color: '#9ca3af', fontWeight: 600, marginBottom: 4 }}>GAME LOG</div>
-          {[...(gameState.log ?? [])].reverse().map((entry, i) => (
-            <div key={i} style={{ fontSize: 11, color: '#6b7280', lineHeight: 1.6 }}>
-              {entry.message}
-            </div>
-          ))}
-        </div>
       </div>
 
       {/* ── Hand ── */}
