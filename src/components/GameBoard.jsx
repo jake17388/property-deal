@@ -108,7 +108,7 @@ export default function GameBoard({ gameState, playerId, playerNames, actions })
   // ── Targeting banner text ─────────────────────────────────
   function targetingBannerText() {
     if (!targeting) return '';
-    if (targeting.type === 'slyDeal')    return 'Tap any opponent property to steal it';
+    if (targeting.type === 'slyDeal')     return 'Tap any opponent property to steal it';
     if (targeting.type === 'dealBreaker') return 'Tap a complete set to steal it';
     if (targeting.type === 'forceDeal' && targeting.step !== 'pickOwn') return "Tap an opponent's property to take";
     if (targeting.type === 'forceDeal' && targeting.step === 'pickOwn') return 'Now tap one of YOUR properties to give';
@@ -117,7 +117,7 @@ export default function GameBoard({ gameState, playerId, playerNames, actions })
 
   return (
     <div style={{
-      minHeight: '100vh',
+      height: '100vh',
       background: '#f3f4f6',
       display: 'flex',
       flexDirection: 'column',
@@ -125,6 +125,7 @@ export default function GameBoard({ gameState, playerId, playerNames, actions })
       maxWidth: 480,
       margin: '0 auto',
       position: 'relative',
+      overflow: 'hidden',
     }}>
 
       {/* ── Top bar ── */}
@@ -135,8 +136,7 @@ export default function GameBoard({ gameState, playerId, playerNames, actions })
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
-        position: 'sticky',
-        top: 0,
+        flexShrink: 0,
         zIndex: 10,
       }}>
         <span style={{ fontWeight: 800, fontSize: 16, color: '#111827' }}>
@@ -164,8 +164,7 @@ export default function GameBoard({ gameState, playerId, playerNames, actions })
           display: 'flex',
           justifyContent: 'space-between',
           alignItems: 'center',
-          position: 'sticky',
-          top: 49,
+          flexShrink: 0,
           zIndex: 9,
         }}>
           <span style={{ fontSize: 13, fontWeight: 600, color: '#92400e' }}>
@@ -184,21 +183,28 @@ export default function GameBoard({ gameState, playerId, playerNames, actions })
 
       {/* ── Pending action banner ── */}
       {pending && !targeting && (
-        <PendingBanner
-          pending={pending}
-          playerId={playerId}
-          gameState={gameState}
-          getName={getName}
-          hasJSN={hasJSN}
-          iAmTarget={iAmTarget}
-          actions={actions}
-          onOpenPayment={openPaymentModal}
-        />
+        <div style={{ flexShrink: 0 }}>
+          <PendingBanner
+            pending={pending}
+            playerId={playerId}
+            gameState={gameState}
+            getName={getName}
+            hasJSN={hasJSN}
+            iAmTarget={iAmTarget}
+            actions={actions}
+            onOpenPayment={openPaymentModal}
+          />
+        </div>
       )}
 
       {/* ── Scrollable board ── */}
-      <div style={{ flex: 1, overflowY: 'auto', padding: '12px' }}>
-
+      <div style={{
+        flex: 1,
+        overflowY: 'auto',
+        padding: '12px',
+        WebkitOverflowScrolling: 'touch',
+        overscrollBehavior: 'contain',
+      }}>
         <div style={{ fontSize: 11, color: '#9ca3af', textAlign: 'right', marginBottom: 8 }}>
           Deck: {gameState.deck} cards remaining
         </div>
@@ -245,17 +251,19 @@ export default function GameBoard({ gameState, playerId, playerNames, actions })
         />
       </div>
 
-      {/* ── Hand ── */}
-      <Hand
-        cards={me?.hand ?? []}
-        gameState={gameState}
-        playerId={playerId}
-        actions={actions}
-        actionsUsed={gameState.actionsUsed}
-        onEnterTargeting={enterTargeting}
-        onCancelTargeting={cancelTargeting}
-        targetingMode={!!targeting}
-      />
+      {/* ── Hand (pinned to bottom) ── */}
+      <div style={{ flexShrink: 0 }}>
+        <Hand
+          cards={me?.hand ?? []}
+          gameState={gameState}
+          playerId={playerId}
+          actions={actions}
+          actionsUsed={gameState.actionsUsed}
+          onEnterTargeting={enterTargeting}
+          onCancelTargeting={cancelTargeting}
+          targetingMode={!!targeting}
+        />
+      </div>
 
       {/* ── Payment modal ── */}
       {paymentModal && (
@@ -376,7 +384,6 @@ function PendingBanner({ pending, playerId, gameState, getName, hasJSN, iAmTarge
         )}
       </div>
 
-      {/* Target player buttons */}
       {iAmTarget && !pending.justSayNoBy && (
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           {needsPayment && (
@@ -398,7 +405,6 @@ function PendingBanner({ pending, playerId, gameState, getName, hasJSN, iAmTarge
         </div>
       )}
 
-      {/* Initiator counters a JSN */}
       {isInitiator && pending.justSayNoBy && hasJSN && (
         <ActionBtn
           label="Counter with Just Say No!"
