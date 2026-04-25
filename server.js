@@ -22,7 +22,7 @@ import {
 const app  = express();
 const http = createServer(app);
 const io   = new Server(http, {
-  cors: { origin: '*', methods: ['GET', 'POST'] },
+  cors: { origin: 'https://property-deal-chi.vercel.app', methods: ['GET', 'POST'] },
 });
 
 app.use(cors());
