@@ -117,7 +117,7 @@ export default function GameBoard({ gameState, playerId, playerNames, actions })
 
   return (
     <div style={{
-      height: '100vh',
+      height: '100%',
       background: '#f3f4f6',
       display: 'flex',
       flexDirection: 'column',
