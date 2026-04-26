@@ -15,12 +15,6 @@ import {
   resignGame, getCurrentPlayer, checkWin,
 } from './src/game/engine.js';
 
-import {
-  createGame, drawForTurn, playCard,
-  respondToAction, moveWildcard, endTurn,
-  getCurrentPlayer, checkWin,
-} from './src/game/engine.js';
-
 // ============================================================
 // SERVER SETUP
 // ============================================================
@@ -187,7 +181,10 @@ io.on('connection', socket => {
       broadcastGameState(room);
       if (room.gameState.winner) {
         const winner = room.players.find(p => p.id === room.gameState.winner);
-        io.to(room.roomCode).emit('gameOver', { winnerId: room.gameState.winner, winnerName: winner?.name });
+        io.to(room.roomCode).emit('gameOver', {
+          winnerId:   room.gameState.winner,
+          winnerName: winner?.name ?? room.gameState.playerNames?.[room.gameState.winner],
+        });
       }
     } catch (err) {
       emitError(socket, err.message);
@@ -212,7 +209,10 @@ io.on('connection', socket => {
       broadcastGameState(room);
       if (room.gameState.winner) {
         const winner = room.players.find(p => p.id === room.gameState.winner);
-        io.to(room.roomCode).emit('gameOver', { winnerId: room.gameState.winner, winnerName: winner?.name });
+        io.to(room.roomCode).emit('gameOver', {
+          winnerId:   room.gameState.winner,
+          winnerName: winner?.name ?? room.gameState.playerNames?.[room.gameState.winner],
+        });
       }
     } catch (err) {
       emitError(socket, err.message);
@@ -245,11 +245,8 @@ io.on('connection', socket => {
 
     try {
       room.gameState = endTurn(room.gameState, player.id, discardIds);
-
-      // Auto-draw for the next player
       const nextId = room.gameState.playerOrder[room.gameState.currentPlayerIndex];
       drawForTurn(room.gameState, nextId);
-
       broadcastGameState(room);
     } catch (err) {
       emitError(socket, err.message);
@@ -257,42 +254,40 @@ io.on('connection', socket => {
   });
 
   // ── Resign Game ──────────────────────────────────────────
-socket.on('resignGame', () => {
-  const room = getRoomBySocket(socket.id);
-  if (!room?.gameState) return emitError(socket, 'No game in progress.');
+  socket.on('resignGame', () => {
+    const room = getRoomBySocket(socket.id);
+    if (!room?.gameState) return emitError(socket, 'No game in progress.');
 
-  const player = getPlayerBySocket(room, socket.id);
-  if (!player) return emitError(socket, 'Player not found.');
+    const player = getPlayerBySocket(room, socket.id);
+    if (!player) return emitError(socket, 'Player not found.');
 
-  try {
-    room.gameState = resignGame(room.gameState, player.id);
+    try {
+      room.gameState = resignGame(room.gameState, player.id);
 
-    // If a new turn needs to start after resignation, auto-draw
-    if (room.gameState.phase !== 'gameover' && room.gameState.playerOrder.length > 0) {
-      const currentId = room.gameState.playerOrder[room.gameState.currentPlayerIndex];
-      try { drawForTurn(room.gameState, currentId); } catch(e) {}
+      if (room.gameState.phase !== 'gameover' && room.gameState.playerOrder.length > 0) {
+        const currentId = room.gameState.playerOrder[room.gameState.currentPlayerIndex];
+        try { drawForTurn(room.gameState, currentId); } catch(e) {}
+      }
+
+      broadcastGameState(room);
+
+      if (room.gameState.winner) {
+        const winner = room.players.find(p => p.id === room.gameState.winner);
+        io.to(room.roomCode).emit('gameOver', {
+          winnerId:   room.gameState.winner,
+          winnerName: winner?.name ?? room.gameState.playerNames?.[room.gameState.winner] ?? 'Unknown',
+          reason:     'resignation',
+        });
+      } else {
+        io.to(room.roomCode).emit('playerResigned', {
+          playerId:   player.id,
+          playerName: player.name,
+        });
+      }
+    } catch (err) {
+      emitError(socket, err.message);
     }
-
-    broadcastGameState(room);
-
-    if (room.gameState.winner) {
-      const winner = room.players.find(p => p.id === room.gameState.winner);
-      io.to(room.roomCode).emit('gameOver', {
-        winnerId:   room.gameState.winner,
-        winnerName: winner?.name ?? room.gameState.playerNames?.[room.gameState.winner] ?? 'Unknown',
-        reason:     'resignation',
-      });
-    } else {
-      // Notify others that this player resigned
-      io.to(room.roomCode).emit('playerResigned', {
-        playerId:   player.id,
-        playerName: player.name,
-      });
-    }
-  } catch (err) {
-    emitError(socket, err.message);
-  }
-});
+  });
 
   // ── Disconnect ───────────────────────────────────────────
   socket.on('disconnect', () => {
