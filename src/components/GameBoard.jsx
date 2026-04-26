@@ -15,6 +15,7 @@ export default function GameBoard({ gameState, playerId, playerNames, actions })
   const currentTurnId = gameState.playerOrder[gameState.currentPlayerIndex];
   const isMyTurn      = currentTurnId === playerId;
   const pending       = gameState.pendingAction;
+  const [showSettings, setShowSettings] = useState(false);
 
   const iAmTarget = pending && (
     pending.fromId === playerId ||
@@ -129,31 +130,41 @@ export default function GameBoard({ gameState, playerId, playerNames, actions })
     }}>
 
       {/* ── Top bar ── */}
-      <div style={{
-        background: '#fff',
-        borderBottom: '1px solid #e5e7eb',
-        padding: '10px 16px',
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center',
-        flexShrink: 0,
-        zIndex: 10,
-      }}>
-        <span style={{ fontWeight: 800, fontSize: 16, color: '#111827' }}>
-          🏠 Property Deal
-        </span>
-        <div style={{
-          fontSize: 12, fontWeight: 600,
-          background: isMyTurn ? '#dcfce7' : '#f3f4f6',
-          color: isMyTurn ? '#166534' : '#6b7280',
-          borderRadius: 20, padding: '4px 12px',
-          border: `1px solid ${isMyTurn ? '#86efac' : '#e5e7eb'}`,
-        }}>
-          {isMyTurn
-            ? `✦ Your Turn (${3 - gameState.actionsUsed}/3)`
-            : `${getName(currentTurnId)}'s turn`}
-        </div>
-      </div>
+<div style={{
+  background: '#fff',
+  borderBottom: '1px solid #e5e7eb',
+  padding: '10px 16px',
+  display: 'flex',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+  flexShrink: 0,
+  zIndex: 10,
+}}>
+  <span style={{ fontWeight: 800, fontSize: 16, color: '#111827' }}>
+    🏠 Property Deal
+  </span>
+  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+    <div style={{
+      fontSize: 12, fontWeight: 600,
+      background: isMyTurn ? '#dcfce7' : '#f3f4f6',
+      color: isMyTurn ? '#166534' : '#6b7280',
+      borderRadius: 20, padding: '4px 12px',
+      border: `1px solid ${isMyTurn ? '#86efac' : '#e5e7eb'}`,
+    }}>
+      {isMyTurn
+        ? `✦ Your Turn (${3 - gameState.actionsUsed}/3)`
+        : `${getName(currentTurnId)}'s turn`}
+    </div>
+    <button
+      onClick={() => setShowSettings(true)}
+      style={{
+        background: '#f3f4f6', border: 'none', borderRadius: 10,
+        width: 36, height: 36, fontSize: 18, cursor: 'pointer',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+      }}
+    >⚙️</button>
+  </div>
+</div>
 
       {/* ── Targeting banner ── */}
       {targeting && (
@@ -281,6 +292,57 @@ export default function GameBoard({ gameState, playerId, playerNames, actions })
           } : null}
         />
       )}
+
+{/* ── Settings Modal ── */}
+{showSettings && (
+  <div style={{
+    position: 'fixed', inset: 0, zIndex: 100,
+    background: 'rgba(0,0,0,0.5)',
+    display: 'flex', alignItems: 'flex-end',
+  }}>
+    <div style={{
+      background: '#fff',
+      borderRadius: '16px 16px 0 0',
+      width: '100%',
+      maxWidth: 480,
+      margin: '0 auto',
+      padding: '24px 20px 40px',
+    }}>
+      <div style={{ fontSize: 18, fontWeight: 700, color: '#111827', marginBottom: 4 }}>
+        ⚙️ Settings
+      </div>
+      <div style={{ fontSize: 13, color: '#9ca3af', marginBottom: 24 }}>
+        Game options
+      </div>
+
+      <button
+        onClick={() => {
+          if (window.confirm('Are you sure you want to resign? This will end the game.')) {
+            window.location.reload();
+          }
+        }}
+        style={{
+          width: '100%', background: '#fef2f2', color: '#dc2626',
+          border: '2px solid #fca5a5', borderRadius: 14, padding: '16px',
+          fontSize: 16, fontWeight: 700, cursor: 'pointer', marginBottom: 12,
+        }}
+      >
+        🏳️ Resign Game
+      </button>
+
+      <button
+        onClick={() => setShowSettings(false)}
+        style={{
+          width: '100%', background: '#f3f4f6', color: '#6b7280',
+          border: 'none', borderRadius: 14, padding: '16px',
+          fontSize: 16, cursor: 'pointer',
+        }}
+      >
+        Cancel
+      </button>
+    </div>
+  </div>
+)}
 
       {/* ── Move Wildcard Modal ── */}
       {moveModal && (
