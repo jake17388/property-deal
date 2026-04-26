@@ -427,6 +427,16 @@ export default function GameBoard({ gameState, playerId, playerNames, actions, r
 
 // ── Pending Action Banner ─────────────────────────────────────
 
+function findCardInProperties(players, playerId, cardId) {
+  const player = players?.[playerId];
+  if (!player) return null;
+  for (const group of Object.values(player.properties)) {
+    const card = group.cards.find(c => c.id === cardId);
+    if (card) return card;
+  }
+  return null;
+}
+
 function PendingBanner({ pending, playerId, gameState, getName, hasJSN, iAmTarget, actions, onOpenPayment }) {
   const isInitiator  = pending.toId === playerId || pending.initiatorId === playerId;
   const needsPayment = ['payment', 'birthdayPayment', 'rentPayment'].includes(pending.type);
@@ -440,6 +450,17 @@ function PendingBanner({ pending, playerId, gameState, getName, hasJSN, iAmTarge
     forceDeal:       'Force Deal',
     dealBreaker:     'Deal Breaker!',
   };
+
+  let dealDetail = null;
+  if (pending.type === 'slyDeal' && pending.targetCardId) {
+    const stolen = findCardInProperties(gameState.players, pending.fromId, pending.targetCardId);
+    if (stolen) dealDetail = `Stealing: ${stolen.name}`;
+  } else if (pending.type === 'forceDeal' && pending.targetCardId && pending.offeredCardId) {
+    const taken    = findCardInProperties(gameState.players, pending.targetId, pending.targetCardId);
+    const offered  = findCardInProperties(gameState.players, pending.initiatorId, pending.offeredCardId);
+    if (taken && offered) dealDetail = `Taking: ${taken.name} · Offering: ${offered.name}`;
+    else if (taken)       dealDetail = `Taking: ${taken.name}`;
+  }
 
   return (
     <div style={{
@@ -455,6 +476,7 @@ function PendingBanner({ pending, playerId, gameState, getName, hasJSN, iAmTarge
           {pending.amount && `$${pending.amount}M owed`}
           {pending.targetColor && ` · ${pending.targetColor} set targeted`}
           {pending.remaining?.length > 0 && ` · ${pending.remaining.length} player(s) left to pay`}
+          {dealDetail && dealDetail}
         </div>
         {pending.justSayNoBy && (
           <div style={{ fontSize: 11, color: '#dc2626', fontWeight: 600, marginTop: 2 }}>
