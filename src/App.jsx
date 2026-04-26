@@ -3,14 +3,10 @@ import { useGameState } from './hooks/useGameState';
 import { useState }     from 'react';
 import GameBoard        from './components/GameBoard.jsx';
 
-const {
-  roomCode, playerId, roomInfo, gameState, gameOver, error, actions, resignedPlayer,
-} = useGameState(socket);
-
 export default function App() {
   const { socket, connected } = useSocket();
   const {
-    roomCode, playerId, roomInfo, gameState, gameOver, error, actions,
+    roomCode, playerId, roomInfo, gameState, gameOver, error, actions, resignedPlayer,
   } = useGameState(socket);
 
   const [nameInput, setNameInput] = useState('');
@@ -18,60 +14,60 @@ export default function App() {
 
   // ── Game Over ───────────────────────────────────────────
   if (gameOver) return (
-  <div style={{
-    height: '100%',
-    background: '#f3f4f6',
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
-    padding: 24,
-  }}>
     <div style={{
-      background: '#fff',
-      borderRadius: 20,
-      padding: '40px 28px',
-      width: '100%',
-      maxWidth: 380,
-      textAlign: 'center',
-      boxShadow: '0 4px 24px rgba(0,0,0,0.08)',
+      height: '100%',
+      background: '#f3f4f6',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+      padding: 24,
     }}>
-      <div style={{ fontSize: 64, marginBottom: 12 }}>🏆</div>
-      <h1 style={{ fontSize: 26, fontWeight: 800, color: '#111827', marginBottom: 6 }}>
-        {gameOver.winnerName} wins!
-      </h1>
-      <p style={{ fontSize: 14, color: '#6b7280', marginBottom: 32 }}>
-        {gameOver.reason === 'resignation'
-          ? 'Game ended by resignation'
-          : 'Great game everyone!'}
-      </p>
-      <button
-        onClick={() => window.location.reload()}
-        style={{
-          width: '100%', background: '#1d4ed8', color: '#fff',
-          border: 'none', borderRadius: 14, padding: '16px',
-          fontSize: 16, fontWeight: 700, cursor: 'pointer',
-          marginBottom: 12,
-        }}
-      >
-        🏠 Back to Home
-      </button>
+      <div style={{
+        background: '#fff',
+        borderRadius: 20,
+        padding: '40px 28px',
+        width: '100%',
+        maxWidth: 380,
+        textAlign: 'center',
+        boxShadow: '0 4px 24px rgba(0,0,0,0.08)',
+      }}>
+        <div style={{ fontSize: 64, marginBottom: 12 }}>🏆</div>
+        <h1 style={{ fontSize: 26, fontWeight: 800, color: '#111827', marginBottom: 6 }}>
+          {gameOver.winnerName} wins!
+        </h1>
+        <p style={{ fontSize: 14, color: '#6b7280', marginBottom: 32 }}>
+          {gameOver.reason === 'resignation'
+            ? 'Game ended by resignation'
+            : 'Great game everyone!'}
+        </p>
+        <button
+          onClick={() => window.location.reload()}
+          style={{
+            width: '100%', background: '#1d4ed8', color: '#fff',
+            border: 'none', borderRadius: 14, padding: '16px',
+            fontSize: 16, fontWeight: 700, cursor: 'pointer',
+            marginBottom: 12,
+          }}
+        >
+          🏠 Back to Home
+        </button>
+      </div>
     </div>
-  </div>
-);
+  );
 
   // ── In Game ─────────────────────────────────────────────
   if (gameState) return (
-  <GameBoard
-    gameState={gameState}
-    playerId={playerId}
-    playerNames={Object.fromEntries(
-      roomInfo?.players?.map(p => [p.id, p.name]) ?? []
-    )}
-    actions={actions}
-    resignedPlayer={resignedPlayer}
-  />
-);
+    <GameBoard
+      gameState={gameState}
+      playerId={playerId}
+      playerNames={Object.fromEntries(
+        roomInfo?.players?.map(p => [p.id, p.name]) ?? []
+      )}
+      actions={actions}
+      resignedPlayer={resignedPlayer}
+    />
+  );
 
   // ── Lobby ────────────────────────────────────────────────
   if (roomInfo) return (
@@ -191,7 +187,6 @@ export default function App() {
         maxWidth: 380,
         boxShadow: '0 4px 24px rgba(0,0,0,0.08)',
       }}>
-        {/* Logo / Title */}
         <div style={{ textAlign: 'center', marginBottom: 32 }}>
           <div style={{ fontSize: 52, marginBottom: 8 }}>🏠</div>
           <h1 style={{ fontSize: 28, fontWeight: 800, color: '#111827', marginBottom: 4 }}>
@@ -209,7 +204,6 @@ export default function App() {
           </div>
         </div>
 
-        {/* Name input */}
         <div style={{ marginBottom: 16 }}>
           <label style={{ fontSize: 13, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 6 }}>
             Your Name
@@ -235,7 +229,6 @@ export default function App() {
           </div>
         )}
 
-        {/* Create game */}
         <button
           onClick={() => actions.createRoom(nameInput)}
           disabled={!connected || !nameInput.trim()}
@@ -250,14 +243,12 @@ export default function App() {
           Create Game
         </button>
 
-        {/* Divider */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
           <div style={{ flex: 1, height: 1, background: '#e5e7eb' }} />
           <span style={{ fontSize: 12, color: '#9ca3af' }}>or join existing</span>
           <div style={{ flex: 1, height: 1, background: '#e5e7eb' }} />
         </div>
 
-        {/* Join game */}
         <div style={{ display: 'flex', gap: 8 }}>
           <input
             style={{
