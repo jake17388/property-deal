@@ -111,6 +111,62 @@ export function endTurn(state, playerId, discardIds = []) {
   return state;
 }
 
+export function resignGame(state, playerId) {
+  const player = state.players[playerId];
+  if (!player) throw new Error('Player not found.');
+
+  // Return all cards to discard pile
+  state.discard.push(...player.hand);
+  state.discard.push(...player.bank);
+  Object.values(player.properties).forEach(group => {
+    state.discard.push(...group.cards);
+  });
+
+  // Remove player from game
+  delete state.players[playerId];
+  state.playerOrder = state.playerOrder.filter(id => id !== playerId);
+
+  // Clear any pending action involving this player
+  if (state.pendingAction) {
+    const p = state.pendingAction;
+    if (
+      p.fromId === playerId || p.toId === playerId ||
+      p.initiatorId === playerId || p.targetId === playerId ||
+      p.fromIds?.includes(playerId)
+    ) {
+      state.pendingAction = null;
+      state.phase = 'playing';
+    }
+    // Remove from remaining payers if birthday/rent
+    if (p.remaining) {
+      p.remaining = p.remaining.filter(id => id !== playerId);
+      if (p.remaining.length === 0) {
+        state.pendingAction = null;
+        state.phase = 'playing';
+      }
+    }
+  }
+
+  // If it was this player's turn, advance to next
+  if (state.playerOrder.length > 0) {
+    state.currentPlayerIndex = state.currentPlayerIndex % state.playerOrder.length;
+    // Auto draw for next player
+  }
+
+  addLog(state, `${playerId} resigned from the game.`);
+
+  // Check if only one player remains
+  if (state.playerOrder.length === 1) {
+    state.phase  = 'gameover';
+    state.winner = state.playerOrder[0];
+    addLog(state, `🏆 ${state.playerOrder[0]} wins — last player standing!`);
+  } else if (state.playerOrder.length === 0) {
+    state.phase = 'gameover';
+  }
+
+  return state;
+}
+
 // ============================================================
 // PLAYING CARDS
 // ============================================================

@@ -12,6 +12,12 @@ import { v4 as uuidv4 } from 'uuid';
 import {
   createGame, drawForTurn, playCard,
   respondToAction, moveWildcard, endTurn,
+  resignGame, getCurrentPlayer, checkWin,
+} from './src/game/engine.js';
+
+import {
+  createGame, drawForTurn, playCard,
+  respondToAction, moveWildcard, endTurn,
   getCurrentPlayer, checkWin,
 } from './src/game/engine.js';
 
@@ -249,6 +255,44 @@ io.on('connection', socket => {
       emitError(socket, err.message);
     }
   });
+
+  // ── Resign Game ──────────────────────────────────────────
+socket.on('resignGame', () => {
+  const room = getRoomBySocket(socket.id);
+  if (!room?.gameState) return emitError(socket, 'No game in progress.');
+
+  const player = getPlayerBySocket(room, socket.id);
+  if (!player) return emitError(socket, 'Player not found.');
+
+  try {
+    room.gameState = resignGame(room.gameState, player.id);
+
+    // If a new turn needs to start after resignation, auto-draw
+    if (room.gameState.phase !== 'gameover' && room.gameState.playerOrder.length > 0) {
+      const currentId = room.gameState.playerOrder[room.gameState.currentPlayerIndex];
+      try { drawForTurn(room.gameState, currentId); } catch(e) {}
+    }
+
+    broadcastGameState(room);
+
+    if (room.gameState.winner) {
+      const winner = room.players.find(p => p.id === room.gameState.winner);
+      io.to(room.roomCode).emit('gameOver', {
+        winnerId:   room.gameState.winner,
+        winnerName: winner?.name ?? room.gameState.playerNames?.[room.gameState.winner] ?? 'Unknown',
+        reason:     'resignation',
+      });
+    } else {
+      // Notify others that this player resigned
+      io.to(room.roomCode).emit('playerResigned', {
+        playerId:   player.id,
+        playerName: player.name,
+      });
+    }
+  } catch (err) {
+    emitError(socket, err.message);
+  }
+});
 
   // ── Disconnect ───────────────────────────────────────────
   socket.on('disconnect', () => {

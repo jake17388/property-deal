@@ -4,7 +4,7 @@ import Hand from './Hand.jsx';
 import Card from './Card.jsx';
 import { SET_SIZE } from '../game/cards.js';
 
-export default function GameBoard({ gameState, playerId, playerNames, actions }) {
+export default function GameBoard({ gameState, playerId, playerNames, actions, resignedPlayer }) {
   const [targeting,        setTargeting]        = useState(null);
   const [paymentModal,     setPaymentModal]      = useState(null);
   const [selectedPayCards, setSelectedPayCards]  = useState([]);
@@ -166,6 +166,22 @@ export default function GameBoard({ gameState, playerId, playerNames, actions })
   </div>
 </div>
 
+{/* ── Resignation toast ── */}
+      {resignedPlayer && (
+        <div style={{
+          background: '#fef2f2',
+          borderBottom: '1px solid #fca5a5',
+          padding: '10px 16px',
+          fontSize: 13,
+          fontWeight: 600,
+          color: '#dc2626',
+          textAlign: 'center',
+          flexShrink: 0,
+        }}>
+          {resignedPlayer} has resigned from the game
+        </div>
+      )}
+      
       {/* ── Targeting banner ── */}
       {targeting && (
         <div style={{
@@ -316,19 +332,20 @@ export default function GameBoard({ gameState, playerId, playerNames, actions })
       </div>
 
       <button
-        onClick={() => {
-          if (window.confirm('Are you sure you want to resign? This will end the game.')) {
-            window.location.reload();
-          }
-        }}
-        style={{
-          width: '100%', background: '#fef2f2', color: '#dc2626',
-          border: '2px solid #fca5a5', borderRadius: 14, padding: '16px',
-          fontSize: 16, fontWeight: 700, cursor: 'pointer', marginBottom: 12,
-        }}
-      >
-        🏳️ Resign Game
-      </button>
+  onClick={() => {
+    if (window.confirm('Are you sure you want to resign?')) {
+      actions.resignGame();
+      setShowSettings(false);
+    }
+  }}
+  style={{
+    width: '100%', background: '#fef2f2', color: '#dc2626',
+    border: '2px solid #fca5a5', borderRadius: 14, padding: '16px',
+    fontSize: 16, fontWeight: 700, cursor: 'pointer', marginBottom: 12,
+  }}
+>
+  🏳️ Resign Game
+</button>
 
       <button
         onClick={() => setShowSettings(false)}
