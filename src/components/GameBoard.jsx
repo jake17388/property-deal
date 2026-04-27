@@ -540,8 +540,13 @@ function PendingBanner({ pending, playerId, gameState, getName, hasJSN, iAmTarge
 // ── Payment Modal ─────────────────────────────────────────────
 
 function PaymentModal({ amount, player, selectedCards, selectedTotal, onToggle, onSubmit, onJSN }) {
-  const canPay   = selectedTotal >= amount;
-  const overpaid = selectedTotal > amount;
+  const totalAssets = [
+    ...player.bank,
+    ...Object.values(player.properties).flatMap(g => g.cards),
+  ].reduce((sum, c) => sum + (c.value ?? 0), 0);
+  const insolvent  = totalAssets < amount;
+  const canPay     = selectedTotal >= amount || (insolvent && selectedTotal >= totalAssets);
+  const overpaid   = selectedTotal > amount;
 
   return (
     <div style={{
@@ -570,8 +575,9 @@ function PaymentModal({ amount, player, selectedCards, selectedTotal, onToggle, 
           color: canPay ? '#15803d' : '#dc2626',
         }}>
           Selected: ${selectedTotal}M
-          {canPay && !overpaid && ' ✓ exact'}
+          {canPay && !overpaid && !insolvent && ' ✓ exact'}
           {overpaid && ` ✓ (opponent keeps the overage)`}
+          {insolvent && canPay && ` — paying all you have`}
           {!canPay && ` — need $${amount - selectedTotal}M more`}
         </div>
 
@@ -622,7 +628,11 @@ function PaymentModal({ amount, player, selectedCards, selectedTotal, onToggle, 
               cursor: canPay ? 'pointer' : 'not-allowed',
             }}
           >
-            {canPay ? `Confirm Payment ($${selectedTotal}M)` : `Select $${amount - selectedTotal}M more`}
+            {canPay
+              ? insolvent
+                ? `Pay All You Have ($${selectedTotal}M)`
+                : `Confirm Payment ($${selectedTotal}M)`
+              : `Select $${amount - selectedTotal}M more`}
           </button>
           {onJSN && (
             <button
