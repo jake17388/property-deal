@@ -61,24 +61,21 @@ export default function Card({ card, onClick, selected, small, faceDown, dimmed,
   return (
     <div
       onClick={() => onClick?.(card)}
+      className={highlighted ? 'card-shake' : undefined}
       style={{
         width: w,
         height: h,
         borderRadius: 8,
         background: v.bodyBg,
-        border: `2px solid ${highlighted ? '#f59e0b' : selected ? '#f59e0b' : v.headerBg}`,
+        border: `2px solid ${selected ? '#f59e0b' : v.headerBg}`,
         display: 'flex',
         flexDirection: 'column',
         overflow: 'hidden',
         cursor: onClick ? 'pointer' : 'default',
         flexShrink: 0,
         opacity: dimmed ? 0.35 : 1,
-        transform: selected ? 'translateY(-8px)' : 'none',
-        boxShadow: selected
-          ? '0 8px 20px rgba(0,0,0,0.2)'
-          : highlighted
-          ? '0 0 0 3px #f59e0b'
-          : '0 1px 3px rgba(0,0,0,0.1)',
+        transform: selected ? 'translateY(-8px)' : undefined,
+        boxShadow: selected ? '0 8px 20px rgba(0,0,0,0.2)' : '0 1px 3px rgba(0,0,0,0.1)',
         transition: 'transform 0.15s, box-shadow 0.15s, opacity 0.15s',
         userSelect: 'none',
         position: 'relative',

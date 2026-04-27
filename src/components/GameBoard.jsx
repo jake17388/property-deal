@@ -24,6 +24,17 @@ export default function GameBoard({ gameState, playerId, playerNames, actions, r
   );
   const hasJSN = me?.hand?.some(c => c.action === 'justSayNo');
 
+  function pendingHighlightIds(pid) {
+    if (!pending) return null;
+    if (pending.type === 'slyDeal' && pending.fromId === pid)
+      return new Set([pending.targetCardId]);
+    if (pending.type === 'forceDeal') {
+      if (pending.targetId === pid)    return new Set([pending.targetCardId]);
+      if (pending.initiatorId === pid) return new Set([pending.offeredCardId]);
+    }
+    return null;
+  }
+
   function getCompleteSets(pid) {
     let count = 0;
     for (const [color, group] of Object.entries(gameState.players[pid]?.properties ?? {})) {
@@ -251,6 +262,7 @@ export default function GameBoard({ gameState, playerId, playerNames, actions, r
               onGroupClick={handleGroupClick}
               isMyTurn={false}
               onMoveWildcard={null}
+              highlightCardIds={pendingHighlightIds(oid)}
             />
           </div>
         ))}
@@ -275,6 +287,7 @@ export default function GameBoard({ gameState, playerId, playerNames, actions, r
           onGroupClick={() => {}}
           isMyTurn={isMyTurn}
           onMoveWildcard={handleMoveWildcard}
+          highlightCardIds={pendingHighlightIds(playerId)}
         />
       </div>
 

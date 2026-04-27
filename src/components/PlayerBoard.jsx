@@ -13,6 +13,7 @@ export default function PlayerBoard({
   onGroupClick,
   isMyTurn,
   onMoveWildcard,
+  highlightCardIds,
 }) {
   const bankTotal = player.bank.reduce((sum, c) => sum + (c.value ?? c.bankValue ?? 0), 0);
   const propertyEntries = Object.entries(player.properties ?? {});
@@ -99,6 +100,7 @@ export default function PlayerBoard({
                   playerId={player.id}
                   isMyTurn={isMyTurn}
                   onMoveWildcard={onMoveWildcard}
+                  highlightCardIds={highlightCardIds}
                 />
               ))}
             </div>
@@ -115,7 +117,7 @@ export default function PlayerBoard({
 
 function PropertyGroup({
   color, group, isYou, targetingMode, targetingType,
-  onPropertyClick, onGroupClick, playerId, isMyTurn, onMoveWildcard,
+  onPropertyClick, onGroupClick, playerId, isMyTurn, onMoveWildcard, highlightCardIds,
 }) {
   const cfg      = getColorConfig(color);
   const needed   = SET_SIZE[color] ?? 0;
@@ -189,7 +191,7 @@ function PropertyGroup({
             <Card
               card={card}
               small
-              highlighted={isCardTarget}
+              highlighted={isCardTarget || highlightCardIds?.has(card.id)}
               onClick={isCardTarget ? () => onPropertyClick?.(playerId, card) : undefined}
             />
             {isYou && isMyTurn && !targetingMode && card.type === 'wildcard' && card.colors?.length > 1 && (
