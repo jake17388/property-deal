@@ -307,15 +307,16 @@ export default function Hand({
         {isMyTurn && (
           <button
             onClick={() => actions.endTurn()}
+            disabled={!!gameState.pendingAction}
             style={{
-              background: '#1d4ed8',
+              background: gameState.pendingAction ? '#9ca3af' : '#1d4ed8',
               color: '#fff',
               border: 'none',
               borderRadius: 20,
               padding: '5px 16px',
               fontSize: 12,
               fontWeight: 700,
-              cursor: 'pointer',
+              cursor: gameState.pendingAction ? 'not-allowed' : 'pointer',
             }}
           >
             End Turn

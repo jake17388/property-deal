@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import PlayerBoard from './PlayerBoard.jsx';
 import Hand from './Hand.jsx';
 import Card from './Card.jsx';
@@ -23,6 +23,13 @@ export default function GameBoard({ gameState, playerId, playerNames, actions, r
     pending.targetId === playerId
   );
   const hasJSN = me?.hand?.some(c => c.action === 'justSayNo');
+
+  // Auto end turn after 3 actions, but only once any pending responses are resolved
+  useEffect(() => {
+    if (!isMyTurn || gameState.actionsUsed < 3 || gameState.phase !== 'playing') return;
+    const timer = setTimeout(() => actions.endTurn(), 600);
+    return () => clearTimeout(timer);
+  }, [gameState.actionsUsed, gameState.phase, isMyTurn]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function pendingHighlightIds(pid) {
     if (!pending) return null;
