@@ -540,30 +540,93 @@ function PendingBanner({ pending, playerId, gameState, getName, hasJSN, iAmTarge
 // ── Payment Modal ─────────────────────────────────────────────
 
 function PaymentModal({ amount, player, selectedCards, selectedTotal, onToggle, onSubmit, onJSN }) {
-  const totalAssets = [
-    ...player.bank,
-    ...Object.values(player.properties).flatMap(g => g.cards),
-  ].reduce((sum, c) => sum + (c.value ?? 0), 0);
+  const allCards   = [...player.bank, ...Object.values(player.properties).flatMap(g => g.cards)];
+  const totalAssets = allCards.reduce((sum, c) => sum + (c.value ?? 0), 0);
   const insolvent  = totalAssets < amount;
-  const canPay     = selectedTotal >= amount || (insolvent && selectedTotal >= totalAssets);
+  const canPay     = selectedTotal >= amount;
   const overpaid   = selectedTotal > amount;
 
+  const sheet = {
+    position: 'fixed', inset: 0, zIndex: 100,
+    background: 'rgba(0,0,0,0.5)',
+    display: 'flex', alignItems: 'flex-end',
+  };
+  const inner = {
+    background: '#fff',
+    borderRadius: '16px 16px 0 0',
+    width: '100%', maxWidth: 480,
+    margin: '0 auto',
+    padding: '20px 16px 32px',
+    maxHeight: '80vh', overflowY: 'auto',
+  };
+
+  // ── Insolvent: skip selection, pay everything automatically ──
+  if (insolvent) {
+    return (
+      <div style={sheet}>
+        <div style={inner}>
+          <div style={{ fontSize: 16, fontWeight: 700, color: '#111827', marginBottom: 6 }}>
+            Pay ${amount}M
+          </div>
+          <div style={{
+            fontSize: 13, color: '#dc2626', fontWeight: 600,
+            background: '#fef2f2', border: '1px solid #fca5a5',
+            borderRadius: 8, padding: '8px 12px', marginBottom: 16,
+          }}>
+            You only have ${totalAssets}M — all your cards will be handed over.
+          </div>
+
+          {player.bank.length > 0 && (
+            <>
+              <div style={{ fontSize: 11, color: '#9ca3af', fontWeight: 600, marginBottom: 8 }}>BANK</div>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 16 }}>
+                {player.bank.map(card => <Card key={card.id} card={card} dimmed />)}
+              </div>
+            </>
+          )}
+
+          {Object.keys(player.properties).length > 0 && (
+            <>
+              <div style={{ fontSize: 11, color: '#9ca3af', fontWeight: 600, marginBottom: 8 }}>PROPERTIES</div>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 20 }}>
+                {Object.values(player.properties).flatMap(g => g.cards).map(card => (
+                  <Card key={card.id} card={card} dimmed />
+                ))}
+              </div>
+            </>
+          )}
+
+          <div style={{ display: 'flex', gap: 8 }}>
+            <button
+              onClick={() => onSubmit(allCards.map(c => c.id))}
+              style={{
+                flex: 1, background: '#15803d', color: '#fff', border: 'none',
+                borderRadius: 12, padding: '14px', fontSize: 14, fontWeight: 700, cursor: 'pointer',
+              }}
+            >
+              Pay All You Have (${totalAssets}M)
+            </button>
+            {onJSN && (
+              <button
+                onClick={onJSN}
+                style={{
+                  background: '#dc2626', color: '#fff', border: 'none',
+                  borderRadius: 12, padding: '14px 16px', fontSize: 14, fontWeight: 700, cursor: 'pointer',
+                }}
+              >
+                JSN!
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ── Normal: player selects which cards to hand over ──
   return (
-    <div style={{
-      position: 'fixed', inset: 0, zIndex: 100,
-      background: 'rgba(0,0,0,0.5)',
-      display: 'flex', alignItems: 'flex-end',
-    }}>
-      <div style={{
-        background: '#fff',
-        borderRadius: '16px 16px 0 0',
-        width: '100%',
-        maxWidth: 480,
-        margin: '0 auto',
-        padding: '20px 16px 32px',
-        maxHeight: '80vh',
-        overflowY: 'auto',
-      }}>
+    <div style={sheet}>
+      <div style={inner}>
         <div style={{ fontSize: 16, fontWeight: 700, color: '#111827', marginBottom: 4 }}>
           Pay ${amount}M
         </div>
@@ -575,44 +638,25 @@ function PaymentModal({ amount, player, selectedCards, selectedTotal, onToggle, 
           color: canPay ? '#15803d' : '#dc2626',
         }}>
           Selected: ${selectedTotal}M
-          {canPay && !overpaid && !insolvent && ' ✓ exact'}
+          {canPay && !overpaid && ' ✓ exact'}
           {overpaid && ` ✓ (opponent keeps the overage)`}
-          {insolvent && canPay && ` — paying all you have`}
           {!canPay && ` — need $${amount - selectedTotal}M more`}
         </div>
 
-        <div style={{ fontSize: 11, color: '#9ca3af', fontWeight: 600, marginBottom: 8 }}>
-          BANK
-        </div>
+        <div style={{ fontSize: 11, color: '#9ca3af', fontWeight: 600, marginBottom: 8 }}>BANK</div>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 16 }}>
           {player.bank.map(card => (
-            <Card
-              key={card.id}
-              card={card}
-              selected={!!selectedCards.find(c => c.id === card.id)}
-              onClick={onToggle}
-            />
+            <Card key={card.id} card={card} selected={!!selectedCards.find(c => c.id === card.id)} onClick={onToggle} />
           ))}
-          {player.bank.length === 0 && (
-            <span style={{ fontSize: 12, color: '#d1d5db' }}>Bank is empty</span>
-          )}
+          {player.bank.length === 0 && <span style={{ fontSize: 12, color: '#d1d5db' }}>Bank is empty</span>}
         </div>
 
-        <div style={{ fontSize: 11, color: '#9ca3af', fontWeight: 600, marginBottom: 8 }}>
-          PROPERTIES
-        </div>
+        <div style={{ fontSize: 11, color: '#9ca3af', fontWeight: 600, marginBottom: 8 }}>PROPERTIES</div>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 20 }}>
           {Object.values(player.properties).flatMap(g => g.cards).map(card => (
-            <Card
-              key={card.id}
-              card={card}
-              selected={!!selectedCards.find(c => c.id === card.id)}
-              onClick={onToggle}
-            />
+            <Card key={card.id} card={card} selected={!!selectedCards.find(c => c.id === card.id)} onClick={onToggle} />
           ))}
-          {Object.keys(player.properties).length === 0 && (
-            <span style={{ fontSize: 12, color: '#d1d5db' }}>No properties</span>
-          )}
+          {Object.keys(player.properties).length === 0 && <span style={{ fontSize: 12, color: '#d1d5db' }}>No properties</span>}
         </div>
 
         <div style={{ display: 'flex', gap: 8 }}>
@@ -628,11 +672,7 @@ function PaymentModal({ amount, player, selectedCards, selectedTotal, onToggle, 
               cursor: canPay ? 'pointer' : 'not-allowed',
             }}
           >
-            {canPay
-              ? insolvent
-                ? `Pay All You Have ($${selectedTotal}M)`
-                : `Confirm Payment ($${selectedTotal}M)`
-              : `Select $${amount - selectedTotal}M more`}
+            {canPay ? `Confirm Payment ($${selectedTotal}M)` : `Select $${amount - selectedTotal}M more`}
           </button>
           {onJSN && (
             <button
