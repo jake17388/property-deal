@@ -541,7 +541,7 @@ function PendingBanner({ pending, playerId, gameState, getName, hasJSN, iAmTarge
 
 function PaymentModal({ amount, player, selectedCards, selectedTotal, onToggle, onSubmit, onJSN }) {
   const allCards   = [...player.bank, ...Object.values(player.properties).flatMap(g => g.cards)];
-  const totalAssets = allCards.reduce((sum, c) => sum + (c.value ?? 0), 0);
+  const totalAssets = allCards.reduce((sum, c) => sum + (c.value ?? c.bankValue ?? 0), 0);
   const insolvent  = totalAssets < amount;
   const canPay     = selectedTotal >= amount;
   const overpaid   = selectedTotal > amount;
