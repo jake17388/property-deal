@@ -1,5 +1,6 @@
+import { useState } from 'react';
 import Card, { getColorConfig } from './Card.jsx';
-import { SET_SIZE } from '../game/cards.js';
+import { SET_SIZE, RENT_VALUES, BUILDING_BONUS } from '../game/cards.js';
 
 export default function PlayerBoard({
   player,
@@ -15,6 +16,8 @@ export default function PlayerBoard({
   onMoveWildcard,
   highlightCardIds,
 }) {
+  const [tooltipInfo, setTooltipInfo] = useState(null);
+
   const bankTotal = player.bank.reduce((sum, c) => sum + (c.value ?? c.bankValue ?? 0), 0);
   const propertyEntries = Object.entries(player.properties ?? {});
 
@@ -101,6 +104,7 @@ export default function PlayerBoard({
                   isMyTurn={isMyTurn}
                   onMoveWildcard={onMoveWildcard}
                   highlightCardIds={highlightCardIds}
+                  onCardInfoClick={(color, group) => setTooltipInfo({ color, cardCount: group.cards.length, hasHouse: group.hasHouse, hasHotel: group.hasHotel })}
                 />
               ))}
             </div>
@@ -111,13 +115,17 @@ export default function PlayerBoard({
           </div>
         )}
       </div>
+
+      {tooltipInfo && (
+        <RentTooltip info={tooltipInfo} onClose={() => setTooltipInfo(null)} />
+      )}
     </div>
   );
 }
 
 function PropertyGroup({
   color, group, isYou, targetingMode, targetingType,
-  onPropertyClick, onGroupClick, playerId, isMyTurn, onMoveWildcard, highlightCardIds,
+  onPropertyClick, onGroupClick, playerId, isMyTurn, onMoveWildcard, highlightCardIds, onCardInfoClick,
 }) {
   const cfg      = getColorConfig(color);
   const needed   = SET_SIZE[color] ?? 0;
@@ -192,7 +200,11 @@ function PropertyGroup({
               card={card}
               small
               highlighted={isCardTarget || highlightCardIds?.has(card.id)}
-              onClick={isCardTarget ? () => onPropertyClick?.(playerId, card) : undefined}
+              onClick={
+                isCardTarget
+                  ? () => onPropertyClick?.(playerId, card)
+                  : () => onCardInfoClick?.(color, group)
+              }
             />
             {isYou && isMyTurn && !targetingMode && card.type === 'wildcard' && card.colors?.length > 1 && (
               <button
@@ -221,6 +233,118 @@ function PropertyGroup({
           TAP TO STEAL
         </div>
       )}
+    </div>
+  );
+}
+
+function RentTooltip({ info, onClose }) {
+  const { color, cardCount, hasHouse, hasHotel } = info;
+  const rentValues = RENT_VALUES[color] ?? [];
+  const setSize    = SET_SIZE[color] ?? rentValues.length;
+  const cfg        = getColorConfig(color);
+
+  const baseRent    = rentValues[cardCount - 1] ?? 0;
+  const houseBonus  = hasHouse ? BUILDING_BONUS.house : 0;
+  const hotelBonus  = hasHotel ? BUILDING_BONUS.hotel : 0;
+  const currentRent = baseRent + houseBonus + hotelBonus;
+
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed', inset: 0, zIndex: 200,
+        background: 'rgba(0,0,0,0.45)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        padding: 24,
+      }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          background: '#fff', borderRadius: 16,
+          width: '100%', maxWidth: 260,
+          overflow: 'hidden',
+          boxShadow: '0 20px 60px rgba(0,0,0,0.35)',
+        }}
+      >
+        {/* Header */}
+        <div style={{ background: cfg.bg, padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <span style={{ fontSize: 14, fontWeight: 700, color: '#fff' }}>
+            {cfg.label} — Rent
+          </span>
+          <span
+            onClick={onClose}
+            style={{ fontSize: 18, color: 'rgba(255,255,255,0.8)', cursor: 'pointer', lineHeight: 1 }}
+          >×</span>
+        </div>
+
+        <div style={{ padding: '12px 16px' }}>
+          {/* Rent rows */}
+          {rentValues.map((rent, i) => {
+            const level    = i + 1;
+            const isActive = level === cardCount;
+            const isFull   = level === setSize;
+            return (
+              <div
+                key={i}
+                style={{
+                  display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                  padding: '5px 10px', borderRadius: 8, marginBottom: 4,
+                  background: isActive ? cfg.light : 'transparent',
+                  border: `1.5px solid ${isActive ? cfg.bg : 'transparent'}`,
+                  fontWeight: isActive ? 700 : 400,
+                }}
+              >
+                <span style={{ fontSize: 13, color: '#374151' }}>
+                  {level} card{level > 1 ? 's' : ''}{isFull ? ' ✓' : ''}
+                </span>
+                <span style={{ fontSize: 14, color: isActive ? cfg.bg : '#374151' }}>
+                  ${rent}M{isActive ? ' ◀' : ''}
+                </span>
+              </div>
+            );
+          })}
+
+          {/* House / Hotel */}
+          <div style={{ marginTop: 8, borderTop: '1px solid #e5e7eb', paddingTop: 8 }}>
+            <div style={{ fontSize: 10, color: '#9ca3af', fontWeight: 600, marginBottom: 6 }}>
+              BUILDINGS (full set only)
+            </div>
+            <div style={{ display: 'flex', gap: 6 }}>
+              {[
+                { label: '🏠 House', bonus: BUILDING_BONUS.house, active: hasHouse },
+                { label: '🏨 Hotel', bonus: BUILDING_BONUS.hotel, active: hasHotel },
+              ].map(({ label, bonus, active }) => (
+                <div
+                  key={label}
+                  style={{
+                    flex: 1, padding: '5px 8px', borderRadius: 8, textAlign: 'center',
+                    background: active ? cfg.light : '#f9fafb',
+                    border: `1px solid ${active ? cfg.bg : '#e5e7eb'}`,
+                  }}
+                >
+                  <div style={{ fontSize: 11, marginBottom: 2 }}>{label}</div>
+                  <div style={{ fontSize: 13, fontWeight: 700, color: active ? cfg.bg : '#9ca3af' }}>
+                    +${bonus}M
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Current total */}
+          <div style={{
+            marginTop: 10, padding: '8px 12px', borderRadius: 10,
+            background: '#f0fdf4', border: '1.5px solid #86efac',
+            display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          }}>
+            <span style={{ fontSize: 13, color: '#15803d', fontWeight: 600 }}>Current rent</span>
+            <span style={{ fontSize: 17, fontWeight: 800, color: '#15803d' }}>
+              ${currentRent}M
+            </span>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
