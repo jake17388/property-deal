@@ -233,20 +233,21 @@ function playAsAction(state, player, card, options) {
     throw new Error('Money cards cannot be played as actions — bank them instead.');
   }
 
-  state.discard.push(card);
+  // House/hotel cards are stored on the property group so they can be sold during payment
+  if (card.action !== 'house' && card.action !== 'hotel') state.discard.push(card);
   state.actionsUsed += 1;
 
   switch (card.action ?? card.type) {
-    case 'passGo':       return resolvePassGo(state, player);
+    case 'passGo':        return resolvePassGo(state, player);
     case 'debtCollector': return initiateDebtCollector(state, player, options);
-    case 'birthday':     return initiateBirthday(state, player);
-    case 'slyDeal':      return initiateSlyDeal(state, player, options);
-    case 'forceDeal':    return initiateForceDeal(state, player, options);
-    case 'dealBreaker':  return initiateDealBreaker(state, player, options);
-    case 'house':        return resolveHouse(state, player, options);
-    case 'hotel':        return resolveHotel(state, player, options);
-    case 'doubleRent':   throw new Error('Double the Rent must be played alongside a rent card.');
-    case CARD_TYPE.RENT: return initiateRent(state, player, card, options);
+    case 'birthday':      return initiateBirthday(state, player);
+    case 'slyDeal':       return initiateSlyDeal(state, player, options);
+    case 'forceDeal':     return initiateForceDeal(state, player, options);
+    case 'dealBreaker':   return initiateDealBreaker(state, player, options);
+    case 'house':         return resolveHouse(state, player, card, options);
+    case 'hotel':         return resolveHotel(state, player, card, options);
+    case 'doubleRent':    throw new Error('Double the Rent must be played alongside a rent card.');
+    case CARD_TYPE.RENT:  return initiateRent(state, player, card, options);
     default: throw new Error(`Unknown action: ${card.action}`);
   }
 }
@@ -378,20 +379,21 @@ function initiateRent(state, player, card, { rentColor, targetPlayerId, doubleRe
   return state;
 }
 
-function resolveHouse(state, player, { targetColor } = {}) {
+function resolveHouse(state, player, card, { targetColor } = {}) {
   if (targetColor === COLOR.RAILROAD || targetColor === COLOR.UTILITY) {
     throw new Error('Houses cannot be built on Railroad or Utility sets.');
   }
   assertCompleteSet(state, player.id, targetColor);
   const group = player.properties[targetColor];
   if (group.hasHouse) throw new Error('This set already has a house.');
-  group.hasHouse = true;
+  group.hasHouse  = true;
+  group.houseCard = card;
   addLog(state, `${player.id} added a House to ${targetColor}.`);
   checkWin(state);
   return state;
 }
 
-function resolveHotel(state, player, { targetColor } = {}) {
+function resolveHotel(state, player, card, { targetColor } = {}) {
   if (targetColor === COLOR.RAILROAD || targetColor === COLOR.UTILITY) {
     throw new Error('Hotels cannot be built on Railroad or Utility sets.');
   }
@@ -399,7 +401,8 @@ function resolveHotel(state, player, { targetColor } = {}) {
   const group = player.properties[targetColor];
   if (!group.hasHouse) throw new Error('A house must be built before a hotel.');
   if (group.hasHotel)  throw new Error('This set already has a hotel.');
-  group.hasHotel = true;
+  group.hasHotel  = true;
+  group.hotelCard = card;
   addLog(state, `${player.id} added a Hotel to ${targetColor}.`);
   checkWin(state);
   return state;
@@ -485,12 +488,38 @@ function resolvePayment(state, payerId, fromId, toId, amount, selectedCardIds = 
 
   if (selectedCardIds.length > 0) {
     for (const cardId of selectedCardIds) {
+      // Check bank first
       const bankIdx = payer.bank.findIndex(c => c.id === cardId);
       if (bankIdx !== -1) {
         const [card] = payer.bank.splice(bankIdx, 1);
         recipient.bank.push(card);
         continue;
       }
+      // Check building cards on property groups
+      let foundBuilding = false;
+      for (const group of Object.values(payer.properties)) {
+        if (group.hotelCard?.id === cardId) {
+          recipient.bank.push(group.hotelCard);
+          group.hotelCard = null;
+          group.hasHotel  = false;
+          foundBuilding = true;
+          break;
+        }
+        if (group.houseCard?.id === cardId) {
+          recipient.bank.push(group.houseCard);
+          group.houseCard = null;
+          group.hasHouse  = false;
+          // Hotel can't exist without a house — discard it
+          if (group.hotelCard) {
+            state.discard.push(group.hotelCard);
+            group.hotelCard = null;
+            group.hasHotel  = false;
+          }
+          foundBuilding = true;
+          break;
+        }
+      }
+      if (foundBuilding) continue;
       transferProperty(state, fromId, toId, cardId);
     }
   } else {

@@ -547,7 +547,8 @@ function PendingBanner({ pending, playerId, gameState, getName, hasJSN, iAmTarge
 // ── Payment Modal ─────────────────────────────────────────────
 
 function PaymentModal({ amount, player, selectedCards, selectedTotal, onToggle, onSubmit, onJSN }) {
-  const allCards   = [...player.bank, ...Object.values(player.properties).flatMap(g => g.cards)];
+  const buildingCards = Object.values(player.properties).flatMap(g => [g.houseCard, g.hotelCard].filter(Boolean));
+  const allCards   = [...player.bank, ...Object.values(player.properties).flatMap(g => g.cards), ...buildingCards];
   const totalAssets = allCards.reduce((sum, c) => sum + (c.value ?? c.bankValue ?? 0), 0);
   const insolvent  = totalAssets < amount;
   const canPay     = selectedTotal >= amount;
@@ -595,10 +596,19 @@ function PaymentModal({ amount, player, selectedCards, selectedTotal, onToggle, 
           {Object.keys(player.properties).length > 0 && (
             <>
               <div style={{ fontSize: 11, color: '#9ca3af', fontWeight: 600, marginBottom: 8 }}>PROPERTIES</div>
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 20 }}>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 16 }}>
                 {Object.values(player.properties).flatMap(g => g.cards).map(card => (
                   <Card key={card.id} card={card} dimmed />
                 ))}
+              </div>
+            </>
+          )}
+
+          {buildingCards.length > 0 && (
+            <>
+              <div style={{ fontSize: 11, color: '#9ca3af', fontWeight: 600, marginBottom: 8 }}>BUILDINGS</div>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 20 }}>
+                {buildingCards.map(card => <Card key={card.id} card={card} dimmed />)}
               </div>
             </>
           )}
@@ -659,12 +669,25 @@ function PaymentModal({ amount, player, selectedCards, selectedTotal, onToggle, 
         </div>
 
         <div style={{ fontSize: 11, color: '#9ca3af', fontWeight: 600, marginBottom: 8 }}>PROPERTIES</div>
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 20 }}>
+        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 16 }}>
           {Object.values(player.properties).flatMap(g => g.cards).map(card => (
             <Card key={card.id} card={card} selected={!!selectedCards.find(c => c.id === card.id)} onClick={onToggle} />
           ))}
           {Object.keys(player.properties).length === 0 && <span style={{ fontSize: 12, color: '#d1d5db' }}>No properties</span>}
         </div>
+
+        {buildingCards.length > 0 && (
+          <>
+            <div style={{ fontSize: 11, color: '#9ca3af', fontWeight: 600, marginBottom: 8 }}>
+              BUILDINGS <span style={{ fontWeight: 400, textTransform: 'none', fontSize: 10 }}>(sold at face value)</span>
+            </div>
+            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 20 }}>
+              {buildingCards.map(card => (
+                <Card key={card.id} card={card} selected={!!selectedCards.find(c => c.id === card.id)} onClick={onToggle} />
+              ))}
+            </div>
+          </>
+        )}
 
         <div style={{ display: 'flex', gap: 8 }}>
           <button
