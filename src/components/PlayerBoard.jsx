@@ -72,9 +72,6 @@ export default function PlayerBoard({
         {/* Bank */}
         {player.bank.length > 0 && (
           <div style={{ marginBottom: 8 }}>
-            <div style={{ fontSize: 10, color: '#9ca3af', fontWeight: 600, marginBottom: 4, letterSpacing: '0.06em' }}>
-              BANK · ${bankTotal}M
-            </div>
             <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
               {player.bank.map(card => (
                 <Card key={card.id} card={card} small />
