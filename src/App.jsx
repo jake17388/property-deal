@@ -6,7 +6,7 @@ import GameBoard                           from './components/GameBoard.jsx';
 export default function App() {
   const { socket, connected } = useSocket();
   const {
-    roomCode, playerId, roomInfo, gameState, gameOver, error, actions, resignedPlayer, hasSession,
+    roomCode, playerId, roomInfo, gameState, gameOver, error, actions, resignedPlayer, hasSession, rematchStatus,
   } = useGameState(socket);
 
   const [nameInput, setNameInput] = useState('');
@@ -70,48 +70,130 @@ export default function App() {
   }
 
   // ── Game Over ───────────────────────────────────────────
-  if (gameOver) return (
-    <div style={{
-      height: '100%',
-      background: '#f3f4f6',
-      display: 'flex',
-      alignItems: 'center',
-      justifyContent: 'center',
-      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
-      padding: 24,
-    }}>
+  if (gameOver) {
+    const playerOrder   = gameState?.playerOrder ?? [];
+    const playerNames   = gameState?.playerNames ?? {};
+    const myVote        = rematchStatus?.votes?.includes(playerId) ?? false;
+    const rematchHostId = rematchStatus?.rematchHostId ?? null;
+    const iAmHost       = rematchHostId === playerId;
+    const voteCount     = rematchStatus?.votes?.length ?? 0;
+
+    return (
       <div style={{
-        background: '#fff',
-        borderRadius: 20,
-        padding: '40px 28px',
-        width: '100%',
-        maxWidth: 380,
-        textAlign: 'center',
-        boxShadow: '0 4px 24px rgba(0,0,0,0.08)',
+        height: '100%', background: '#f3f4f6',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+        padding: 24, overflowY: 'auto',
       }}>
-        <div style={{ fontSize: 64, marginBottom: 12 }}>🏆</div>
-        <h1 style={{ fontSize: 26, fontWeight: 800, color: '#111827', marginBottom: 6 }}>
-          {gameOver.winnerName} wins!
-        </h1>
-        <p style={{ fontSize: 14, color: '#6b7280', marginBottom: 32 }}>
-          {gameOver.reason === 'resignation'
-            ? 'Game ended by resignation'
-            : 'Great game everyone!'}
-        </p>
-        <button
-          onClick={() => window.location.reload()}
-          style={{
-            width: '100%', background: '#1d4ed8', color: '#fff',
-            border: 'none', borderRadius: 14, padding: '16px',
-            fontSize: 16, fontWeight: 700, cursor: 'pointer',
-            marginBottom: 12,
-          }}
-        >
-          🏠 Back to Home
-        </button>
+        <div style={{
+          background: '#fff', borderRadius: 20,
+          padding: '32px 24px', width: '100%', maxWidth: 380,
+          boxShadow: '0 4px 24px rgba(0,0,0,0.08)',
+        }}>
+          {/* Winner */}
+          <div style={{ textAlign: 'center', marginBottom: 24 }}>
+            <div style={{ fontSize: 56, marginBottom: 8 }}>🏆</div>
+            <h1 style={{ fontSize: 24, fontWeight: 800, color: '#111827', marginBottom: 4 }}>
+              {gameOver.winnerName} wins!
+            </h1>
+            <p style={{ fontSize: 13, color: '#6b7280' }}>
+              {gameOver.reason === 'resignation' ? 'Game ended by resignation' : 'Great game everyone!'}
+            </p>
+          </div>
+
+          {/* Rematch section */}
+          <div style={{ borderTop: '1px solid #e5e7eb', paddingTop: 20, marginBottom: 20 }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: '#374151', textAlign: 'center', marginBottom: 14, letterSpacing: '0.04em' }}>
+              REMATCH?
+            </div>
+
+            {/* Per-player vote status */}
+            <div style={{ marginBottom: 16 }}>
+              {playerOrder.map(pid => {
+                const voted = rematchStatus?.votes?.includes(pid) ?? false;
+                const isHost = pid === rematchHostId;
+                return (
+                  <div key={pid} style={{
+                    display: 'flex', alignItems: 'center', gap: 10,
+                    padding: '9px 0', borderBottom: '1px solid #f3f4f6',
+                  }}>
+                    <div style={{ fontSize: 18, width: 24, textAlign: 'center' }}>
+                      {voted ? '✅' : '⏳'}
+                    </div>
+                    <span style={{
+                      flex: 1, fontSize: 14,
+                      color: voted ? '#111827' : '#9ca3af',
+                      fontWeight: pid === playerId ? 700 : 400,
+                    }}>
+                      {playerNames[pid] ?? pid}
+                      {pid === playerId ? ' (you)' : ''}
+                    </span>
+                    {isHost && voted && (
+                      <span style={{
+                        fontSize: 10, background: '#eff6ff', color: '#1d4ed8',
+                        borderRadius: 20, padding: '2px 8px', fontWeight: 700,
+                        border: '1px solid #bfdbfe',
+                      }}>HOST</span>
+                    )}
+                    <span style={{ fontSize: 12, color: voted ? '#16a34a' : '#d1d5db', fontWeight: 600 }}>
+                      {voted ? 'In!' : '...'}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Action button */}
+            {!myVote ? (
+              <button
+                onClick={() => actions.voteRematch()}
+                style={{
+                  width: '100%', background: '#15803d', color: '#fff',
+                  border: 'none', borderRadius: 12, padding: '14px',
+                  fontSize: 15, fontWeight: 700, cursor: 'pointer', marginBottom: 8,
+                }}
+              >
+                Yes, Rematch! 🔁
+              </button>
+            ) : iAmHost ? (
+              <button
+                onClick={() => actions.beginRematch()}
+                style={{
+                  width: '100%', background: '#1d4ed8', color: '#fff',
+                  border: 'none', borderRadius: 12, padding: '14px',
+                  fontSize: 15, fontWeight: 700, cursor: 'pointer', marginBottom: 8,
+                }}
+              >
+                Begin Rematch ({voteCount} player{voteCount !== 1 ? 's' : ''}) 🚀
+              </button>
+            ) : (
+              <div style={{
+                textAlign: 'center', fontSize: 13, color: '#6b7280',
+                padding: '10px 0', marginBottom: 8,
+              }}>
+                {rematchHostId
+                  ? `Waiting for ${playerNames[rematchHostId] ?? 'host'} to start…`
+                  : voteCount >= 1
+                    ? 'Waiting for more players…'
+                    : 'Waiting for others to vote…'}
+              </div>
+            )}
+          </div>
+
+          <button
+            onClick={() => { clearSession(); window.location.reload(); }}
+            style={{
+              width: '100%', background: '#f3f4f6', color: '#6b7280',
+              border: 'none', borderRadius: 12, padding: '12px',
+              fontSize: 14, cursor: 'pointer',
+            }}
+          >
+            🏠 Back to Home
+          </button>
+        </div>
       </div>
-    </div>
-  );
+    );
+  }
 
   // ── In Game ─────────────────────────────────────────────
   if (gameState) return (

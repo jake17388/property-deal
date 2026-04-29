@@ -84,6 +84,35 @@ function emitError(socket, message) {
   socket.emit('error', { message });
 }
 
+function updateRematchHost(room) {
+  if (!room.rematchVotes || room.rematchVotes.size === 0) {
+    room.rematchHostId = null;
+    return;
+  }
+  const votes = [...room.rematchVotes];
+  // Original host voted + at least one other → host gets priority
+  if (room.hostId && votes.includes(room.hostId) && votes.length >= 2) {
+    room.rematchHostId = room.hostId;
+    return;
+  }
+  // 2+ non-host voters → assign one randomly (stable: keep existing if still eligible)
+  const nonHostVotes = votes.filter(id => id !== room.hostId);
+  if (nonHostVotes.length >= 2) {
+    if (room.rematchHostId && nonHostVotes.includes(room.rematchHostId)) return;
+    room.rematchHostId = nonHostVotes[Math.floor(Math.random() * nonHostVotes.length)];
+    return;
+  }
+  room.rematchHostId = null;
+}
+
+function broadcastRematchStatus(room) {
+  updateRematchHost(room);
+  io.to(room.roomCode).emit('rematchStatus', {
+    votes:         [...(room.rematchVotes ?? new Set())],
+    rematchHostId: room.rematchHostId ?? null,
+  });
+}
+
 function emitRoomUpdate(room) {
   io.to(room.roomCode).emit('roomUpdate', {
     roomCode: room.roomCode,
@@ -287,6 +316,51 @@ io.on('connection', socket => {
     } catch (err) {
       emitError(socket, err.message);
     }
+  });
+
+  // ── Vote Rematch ─────────────────────────────────────────
+  socket.on('voteRematch', () => {
+    const room = getRoomBySocket(socket.id);
+    if (!room) return;
+    const player = getPlayerBySocket(room, socket.id);
+    if (!player) return;
+
+    if (!room.rematchVotes) room.rematchVotes = new Set();
+    room.rematchVotes.add(player.id);
+    broadcastRematchStatus(room);
+  });
+
+  // ── Begin Rematch ─────────────────────────────────────────
+  socket.on('beginRematch', () => {
+    const room = getRoomBySocket(socket.id);
+    if (!room) return;
+    const player = getPlayerBySocket(room, socket.id);
+    if (!player) return;
+
+    updateRematchHost(room);
+    if (player.id !== room.rematchHostId) return emitError(socket, 'Only the rematch host can begin.');
+
+    const rematchPlayerIds = [...(room.rematchVotes ?? new Set())];
+    if (rematchPlayerIds.length < 2) return emitError(socket, 'Need at least 2 players to rematch.');
+
+    // Keep only players who voted yes
+    room.players     = room.players.filter(p => rematchPlayerIds.includes(p.id));
+    room.hostId      = room.rematchHostId;
+    room.started     = true;
+    room.rematchVotes   = new Set();
+    room.rematchHostId  = null;
+
+    const playerIds  = room.players.map(p => p.id);
+    room.gameState   = createGame(playerIds);
+    playerIds.forEach(id => {
+      const p = room.players.find(pl => pl.id === id);
+      if (p) room.gameState.playerNames[id] = p.name;
+    });
+
+    drawForTurn(room.gameState, playerIds[0]);
+    broadcastGameState(room);
+    io.to(room.roomCode).emit('gameStarted');
+    console.log(`Rematch started in room ${room.roomCode} with ${playerIds.length} players.`);
   });
 
   // ── Rejoin Room ──────────────────────────────────────────

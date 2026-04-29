@@ -21,6 +21,7 @@ export function useGameState(socket) {
   const [error,          setError]          = useState(null);
   const [resignedPlayer, setResignedPlayer] = useState(null);
   const [hasSession,     setHasSession]     = useState(() => !!loadSession());
+  const [rematchStatus,  setRematchStatus]  = useState(null);
 
   const pendingNameRef = useRef('');
 
@@ -51,13 +52,21 @@ export function useGameState(socket) {
 
     socket.on('roomUpdate',  info  => setRoomInfo(info));
     socket.on('gameStarted', ()    => setError(null));
-    socket.on('gameState',   state => setGameState(state));
+
+    socket.on('gameState', state => {
+      setGameState(state);
+      // When a new game state arrives (rematch), clear the game-over screen
+      setGameOver(null);
+      setRematchStatus(null);
+    });
 
     socket.on('gameOver', info => {
       setGameOver(info);
       clearSession();
       setHasSession(false);
     });
+
+    socket.on('rematchStatus', status => setRematchStatus(status));
 
     socket.on('error', ({ message }) => setError(message));
 
@@ -74,6 +83,7 @@ export function useGameState(socket) {
       socket.off('gameStarted');
       socket.off('gameState');
       socket.off('gameOver');
+      socket.off('rematchStatus');
       socket.off('error');
       socket.off('playerResigned');
     };
@@ -94,7 +104,9 @@ export function useGameState(socket) {
     moveWildcard:    (cardId, newColor)          => socket.emit('moveWildcard',    { cardId, newColor }),
     endTurn:         (discardIds = [])           => socket.emit('endTurn',         { discardIds }),
     resignGame:      ()                          => socket.emit('resignGame'),
+    voteRematch:     ()                          => socket.emit('voteRematch'),
+    beginRematch:    ()                          => socket.emit('beginRematch'),
   };
 
-  return { roomCode, playerId, roomInfo, gameState, gameOver, error, actions, resignedPlayer, hasSession };
+  return { roomCode, playerId, roomInfo, gameState, gameOver, error, actions, resignedPlayer, hasSession, rematchStatus };
 }
