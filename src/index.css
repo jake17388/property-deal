@@ -25,3 +25,8 @@ html, body, #root {
   animation: card-shake 0.55s ease-in-out infinite;
   transform-origin: bottom center;
 }
+
+@keyframes bounce {
+  0%, 80%, 100% { transform: scale(0); opacity: 0.3; }
+  40%            { transform: scale(1); opacity: 1; }
+}

@@ -1,16 +1,73 @@
-import { useSocket }    from './hooks/useSocket';
-import { useGameState } from './hooks/useGameState';
-import { useState }     from 'react';
-import GameBoard        from './components/GameBoard.jsx';
+import { useSocket }                        from './hooks/useSocket';
+import { useGameState, loadSession, clearSession } from './hooks/useGameState';
+import { useState }                        from 'react';
+import GameBoard                           from './components/GameBoard.jsx';
 
 export default function App() {
   const { socket, connected } = useSocket();
   const {
-    roomCode, playerId, roomInfo, gameState, gameOver, error, actions, resignedPlayer,
+    roomCode, playerId, roomInfo, gameState, gameOver, error, actions, resignedPlayer, hasSession,
   } = useGameState(socket);
 
   const [nameInput, setNameInput] = useState('');
   const [codeInput, setCodeInput] = useState('');
+
+  // ── Reconnecting ────────────────────────────────────────
+  if (!connected && hasSession) {
+    const session = loadSession();
+    return (
+      <div style={{
+        height: '100%', background: '#f3f4f6',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
+        padding: 24,
+      }}>
+        <div style={{
+          background: '#fff', borderRadius: 20,
+          padding: '40px 28px', width: '100%', maxWidth: 380,
+          textAlign: 'center', boxShadow: '0 4px 24px rgba(0,0,0,0.08)',
+        }}>
+          <div style={{ fontSize: 48, marginBottom: 16 }}>📡</div>
+          <h2 style={{ fontSize: 20, fontWeight: 800, color: '#111827', marginBottom: 8 }}>
+            Reconnecting…
+          </h2>
+          <p style={{ fontSize: 14, color: '#6b7280', marginBottom: 6 }}>
+            Returning to your game
+          </p>
+          {session?.roomCode && (
+            <div style={{
+              display: 'inline-block', background: '#f0f9ff',
+              border: '1px solid #bae6fd', borderRadius: 10,
+              padding: '6px 16px', fontSize: 20, fontWeight: 800,
+              color: '#0369a1', letterSpacing: '0.15em', marginBottom: 28,
+            }}>
+              {session.roomCode}
+            </div>
+          )}
+          <div style={{ marginBottom: 24 }}>
+            <div style={{ display: 'flex', justifyContent: 'center', gap: 6 }}>
+              {[0, 1, 2].map(i => (
+                <div key={i} style={{
+                  width: 8, height: 8, borderRadius: '50%', background: '#3b82f6',
+                  animation: `bounce 1.2s ease-in-out ${i * 0.2}s infinite`,
+                }} />
+              ))}
+            </div>
+          </div>
+          <button
+            onClick={() => { clearSession(); window.location.reload(); }}
+            style={{
+              background: 'transparent', color: '#9ca3af',
+              border: '1px solid #e5e7eb', borderRadius: 12,
+              padding: '10px 20px', fontSize: 13, cursor: 'pointer',
+            }}
+          >
+            Leave Game
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   // ── Game Over ───────────────────────────────────────────
   if (gameOver) return (

@@ -8,10 +8,24 @@ export function useSocket() {
   const [connected, setConnected] = useState(false);
 
   useEffect(() => {
-    socketRef.current = io(SERVER_URL);
-    socketRef.current.on('connect',    () => setConnected(true));
-    socketRef.current.on('disconnect', () => setConnected(false));
-    return () => socketRef.current.disconnect();
+    const socket = io(SERVER_URL, { reconnectionDelayMax: 3000 });
+    socketRef.current = socket;
+
+    socket.on('connect',    () => setConnected(true));
+    socket.on('disconnect', () => setConnected(false));
+
+    // Wake the socket immediately when the user switches back to the app
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible' && !socket.connected) {
+        socket.connect();
+      }
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+
+    return () => {
+      document.removeEventListener('visibilitychange', onVisibility);
+      socket.disconnect();
+    };
   }, []);
 
   return { socket: socketRef.current, connected };

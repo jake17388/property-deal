@@ -289,6 +289,43 @@ io.on('connection', socket => {
     }
   });
 
+  // ── Rejoin Room ──────────────────────────────────────────
+  socket.on('rejoinRoom', ({ roomCode, playerId }) => {
+    const code = roomCode?.toUpperCase().trim();
+    const room = rooms[code];
+    if (!room) return socket.emit('rejoinFailed', { message: 'Room no longer exists.' });
+
+    const player = room.players.find(p => p.id === playerId);
+    if (!player) return socket.emit('rejoinFailed', { message: 'Player not found in room.' });
+
+    // Update the player's socket mapping and re-join the Socket.IO room
+    player.socketId = socket.id;
+    socket.join(code);
+
+    // Restore session state for this client
+    socket.emit('joinedRoom', { playerId, roomCode: code });
+    emitRoomUpdate(room);
+
+    if (room.gameState) {
+      const state     = room.gameState;
+      const sanitized = {
+        ...state,
+        players: Object.fromEntries(
+          Object.entries(state.players).map(([id, p]) => [id, {
+            ...p,
+            hand: id === player.id
+              ? p.hand
+              : p.hand.map(() => ({ id: 'hidden', type: 'hidden' })),
+          }])
+        ),
+        deck: state.deck.length,
+      };
+      socket.emit('gameState', sanitized);
+    }
+
+    console.log(`${player.name} rejoined room ${code}`);
+  });
+
   // ── Disconnect ───────────────────────────────────────────
   socket.on('disconnect', () => {
     const room = getRoomBySocket(socket.id);
