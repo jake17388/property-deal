@@ -32,9 +32,26 @@ function getCardVisuals(card) {
     return { headerBg: cfg.bg, bodyBg: cfg.light, textColor: cfg.bg, typeLabel: cfg.label?.toUpperCase() };
   }
   if (card.type === CARD_TYPE.WILDCARD) {
-    const activeColor = card.currentColor ?? card.colors?.[0];
-    const cfg = activeColor ? (COLOR_CONFIG[activeColor] ?? { bg: '#9333ea', light: '#faf5ff' }) : { bg: '#9333ea', light: '#faf5ff' };
-    return { headerBg: cfg.bg, bodyBg: cfg.light, textColor: cfg.bg, typeLabel: 'WILD' };
+    // All-color wildcard: full rainbow gradient
+    if (!card.canPayDebt) {
+      return {
+        headerBg:   'linear-gradient(to right, #92400e, #dc2626, #ea580c, #ca8a04, #16a34a, #0284c7, #1d4ed8, #9333ea)',
+        bodyBg:     '#faf5ff',
+        textColor:  '#374151',
+        valueColor: '#9333ea',
+        typeLabel:  'WILD',
+      };
+    }
+    // Two-color wildcard: hard left/right split
+    const cfg0 = COLOR_CONFIG[card.colors[0]] ?? { bg: '#9333ea', light: '#faf5ff' };
+    const cfg1 = COLOR_CONFIG[card.colors[1]] ?? { bg: '#6b7280', light: '#f3f4f6' };
+    return {
+      headerBg:   `linear-gradient(to right, ${cfg0.bg} 50%, ${cfg1.bg} 50%)`,
+      bodyBg:     `linear-gradient(to right, ${cfg0.light} 50%, ${cfg1.light} 50%)`,
+      textColor:  '#374151',
+      valueColor: cfg0.bg,
+      typeLabel:  'WILD',
+    };
   }
   return { headerBg: '#6b7280', bodyBg: '#f3f4f6', textColor: '#111827', typeLabel: '' };
 }
@@ -67,7 +84,7 @@ export default function Card({ card, onClick, selected, small, faceDown, dimmed,
         height: h,
         borderRadius: 8,
         background: v.bodyBg,
-        border: `2px solid ${selected ? '#f59e0b' : v.headerBg}`,
+        border: `2px solid ${selected ? '#f59e0b' : (v.valueColor ?? v.headerBg)}`,
         display: 'flex',
         flexDirection: 'column',
         overflow: 'hidden',
@@ -96,6 +113,7 @@ export default function Card({ card, onClick, selected, small, faceDown, dimmed,
           fontWeight: 700,
           letterSpacing: '0.05em',
           textTransform: 'uppercase',
+          textShadow: '0 1px 2px rgba(0,0,0,0.4)',
         }}>
           {v.typeLabel}
         </span>
@@ -122,7 +140,7 @@ export default function Card({ card, onClick, selected, small, faceDown, dimmed,
         <div style={{
           fontSize: small ? 8 : 11,
           fontWeight: 800,
-          color: v.headerBg,
+          color: v.valueColor ?? v.headerBg,
           textAlign: 'right',
         }}>
           {card.value > 0 ? `$${card.value}M` : card.bankValue ? `$${card.bankValue}M` : ''}
