@@ -19,7 +19,7 @@ export default function GameBoard({ gameState, playerId, playerNames, actions, r
 
   const iAmTarget = pending && (
     pending.fromId === playerId ||
-    pending.fromIds?.includes(playerId) ||
+    pending.remaining?.includes(playerId) ||
     pending.targetId === playerId
   );
   const hasJSN = me?.hand?.some(c => c.action === 'justSayNo');

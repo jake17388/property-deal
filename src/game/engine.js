@@ -455,7 +455,7 @@ function resolveAccept(state, responderId, selectedCardIds = []) {
 
     case 'birthdayPayment':
     case 'rentPayment': {
-      resolvePayment(state, responderId, responderId, pending.toId, pending.amount, selectedCardIds);
+      resolvePayment(state, responderId, responderId, pending.toId, pending.amount, selectedCardIds, true);
       pending.remaining = pending.remaining.filter(id => id !== responderId);
       if (pending.remaining.length === 0) {
         state.pendingAction = null;
@@ -482,7 +482,7 @@ function resolveAccept(state, responderId, selectedCardIds = []) {
 // PAYMENT RESOLUTION
 // ============================================================
 
-function resolvePayment(state, payerId, fromId, toId, amount, selectedCardIds = []) {
+function resolvePayment(state, payerId, fromId, toId, amount, selectedCardIds = [], skipCleanup = false) {
   const payer     = state.players[fromId];
   const recipient = state.players[toId];
 
@@ -541,8 +541,10 @@ function resolvePayment(state, payerId, fromId, toId, amount, selectedCardIds = 
     }
   }
 
-  state.pendingAction = null;
-  state.phase = 'playing';
+  if (!skipCleanup) {
+    state.pendingAction = null;
+    state.phase = 'playing';
+  }
   addLog(state, `${fromId} paid ${toId} (owed $${amount}M).`);
   checkWin(state);
   return state;
