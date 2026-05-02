@@ -800,7 +800,6 @@ function DiscardModal({ cards, excess, selected, onToggle, onConfirm }) {
               key={card.id}
               card={card}
               selected={!!selected.find(c => c.id === card.id)}
-              highlighted={!selected.find(c => c.id === card.id)}
               onClick={onToggle}
             />
           ))}
