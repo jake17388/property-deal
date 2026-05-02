@@ -526,15 +526,24 @@ function PendingBanner({ pending, playerId, gameState, getName, hasJSN, iAmTarge
         </div>
       )}
 
-      {isInitiator && pending.justSayNoBy && hasJSN && (
-        <ActionBtn
-          label="Counter with Just Say No!"
-          color="#7c3aed"
-          onClick={() => {
-            const jsn = gameState.players[playerId].hand.find(c => c.action === 'justSayNo');
-            actions.respondToAction('justSayNo', jsn.id);
-          }}
-        />
+      {isInitiator && pending.justSayNoBy && (
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {hasJSN && (
+            <ActionBtn
+              label="Counter with Just Say No!"
+              color="#7c3aed"
+              onClick={() => {
+                const jsn = gameState.players[playerId].hand.find(c => c.action === 'justSayNo');
+                actions.respondToAction('justSayNo', jsn.id);
+              }}
+            />
+          )}
+          <ActionBtn
+            label="Accept — action blocked"
+            color="#6b7280"
+            onClick={() => actions.respondToAction('acceptJustSayNo')}
+          />
+        </div>
       )}
 
       {!iAmTarget && !isInitiator && (

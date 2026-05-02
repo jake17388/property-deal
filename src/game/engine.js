@@ -419,6 +419,14 @@ export function respondToAction(state, responderId, response, options = {}) {
     return playJustSayNo(state, responderId, options.cardId);
   }
 
+  if (response === 'acceptJustSayNo') {
+    if (!state.pendingAction?.justSayNoBy) throw new Error('No Just Say No is active.');
+    state.pendingAction = null;
+    state.phase = 'playing';
+    addLog(state, `Just Say No! The action was blocked.`);
+    return state;
+  }
+
   if (response === 'accept') {
     return resolveAccept(state, responderId, options.selectedCardIds ?? []);
   }
