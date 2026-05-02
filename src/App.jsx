@@ -230,7 +230,7 @@ export default function App() {
         <div style={{ textAlign: 'center', marginBottom: 24 }}>
           <div style={{ fontSize: 36, marginBottom: 8 }}>🏠</div>
           <h1 style={{ fontSize: 22, fontWeight: 800, color: '#111827', marginBottom: 4 }}>
-            Room {roomCode}
+            Room Code:
           </h1>
           <div style={{
             display: 'inline-block',
