@@ -300,7 +300,7 @@ const wildcardCards = [
   ...Array(2).fill(null).map((_, i) => ({
     id: `wild_pink_orange_${i}`,
     type: CARD_TYPE.WILDCARD,
-    name: 'Pink/Orange Wildcard',
+    name: 'Pink/Orange Wild',
     colors: [COLOR.PINK, COLOR.ORANGE],
     currentColor: COLOR.PINK,
     value: 2,
@@ -309,7 +309,7 @@ const wildcardCards = [
   {
     id: 'wild_lblue_brown',
     type: CARD_TYPE.WILDCARD,
-    name: 'Light Blue/Brown Wildcard',
+    name: 'Light Blue/Brown Wild',
     colors: [COLOR.LIGHT_BLUE, COLOR.BROWN],
     currentColor: COLOR.LIGHT_BLUE,
     value: 1,
@@ -318,7 +318,7 @@ const wildcardCards = [
   {
     id: 'wild_lblue_railroad',
     type: CARD_TYPE.WILDCARD,
-    name: 'Light Blue/Railroad Wildcard',
+    name: 'Light Blue/Railroad Wild',
     colors: [COLOR.LIGHT_BLUE, COLOR.RAILROAD],
     currentColor: COLOR.LIGHT_BLUE,
     value: 4,
@@ -327,7 +327,7 @@ const wildcardCards = [
   {
     id: 'wild_green_dblue',
     type: CARD_TYPE.WILDCARD,
-    name: 'Green/Dark Blue Wildcard',
+    name: 'Green/Dark Blue Wild',
     colors: [COLOR.GREEN, COLOR.DARK_BLUE],
     currentColor: COLOR.GREEN,
     value: 4,
@@ -336,7 +336,7 @@ const wildcardCards = [
   {
     id: 'wild_green_railroad',
     type: CARD_TYPE.WILDCARD,
-    name: 'Green/Railroad Wildcard',
+    name: 'Green/Railroad Wild',
     colors: [COLOR.GREEN, COLOR.RAILROAD],
     currentColor: COLOR.GREEN,
     value: 4,
@@ -345,7 +345,7 @@ const wildcardCards = [
   {
     id: 'wild_utility_railroad',
     type: CARD_TYPE.WILDCARD,
-    name: 'Utility/Railroad Wildcard',
+    name: 'Utility/Railroad Wild',
     colors: [COLOR.UTILITY, COLOR.RAILROAD],
     currentColor: COLOR.UTILITY,
     value: 2,
@@ -354,7 +354,7 @@ const wildcardCards = [
   {
     id: 'wild_red_yellow',
     type: CARD_TYPE.WILDCARD,
-    name: 'Red/Yellow Wildcard',
+    name: 'Red/Yellow Wild',
     colors: [COLOR.RED, COLOR.YELLOW],
     currentColor: COLOR.RED,
     value: 3,
@@ -365,7 +365,7 @@ const wildcardCards = [
   ...Array(2).fill(null).map((_, i) => ({
     id: `wild_allcolor_${i}`,
     type: CARD_TYPE.WILDCARD,
-    name: 'All-Color Wildcard',
+    name: 'All-Color Wild',
     colors: Object.values(COLOR),
     currentColor: null,
     value: 0,
