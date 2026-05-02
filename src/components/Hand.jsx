@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import Card from './Card.jsx';
 import { CARD_TYPE, SET_SIZE } from '../game/cards.js';
 
@@ -12,8 +12,10 @@ export default function Hand({
   onCancelTargeting,
   targetingMode,
   onEndTurn,
+  onCardPlayed,
 }) {
   const [selected, setSelected] = useState(null);
+  const cardRefs = useRef({});
 
   const isMyTurn    = gameState.playerOrder[gameState.currentPlayerIndex] === playerId;
   const actionsLeft = 3 - actionsUsed;
@@ -30,20 +32,29 @@ export default function Hand({
     setSelected(null);
   }
 
+  function firePlayAnimation() {
+    if (!selected || !onCardPlayed) return;
+    const rect = cardRefs.current[selected.id]?.getBoundingClientRect();
+    onCardPlayed(selected, rect ?? null);
+  }
+
   function bankIt() {
     if (!selected) return;
+    firePlayAnimation();
     actions.playCard(selected.id, 'bank', {});
     clearSelected();
   }
 
   function playToProperty(color) {
     if (!selected) return;
+    firePlayAnimation();
     actions.playCard(selected.id, 'property', { targetColor: color });
     clearSelected();
   }
 
   function playAction(opts = {}) {
     if (!selected) return;
+    firePlayAnimation();
     actions.playCard(selected.id, 'action', opts);
     clearSelected();
   }
@@ -334,13 +345,18 @@ export default function Hand({
         WebkitOverflowScrolling: 'touch',
       }}>
         {cards.map(card => (
-          <Card
+          <div
             key={card.id}
-            card={card}
-            selected={selected?.id === card.id}
-            dimmed={targetingMode || (!isMyTurn)}
-            onClick={isMyTurn && !targetingMode ? selectCard : undefined}
-          />
+            ref={el => { if (el) cardRefs.current[card.id] = el; else delete cardRefs.current[card.id]; }}
+            style={{ flexShrink: 0 }}
+          >
+            <Card
+              card={card}
+              selected={selected?.id === card.id}
+              dimmed={targetingMode || (!isMyTurn)}
+              onClick={isMyTurn && !targetingMode ? selectCard : undefined}
+            />
+          </div>
         ))}
         {cards.length === 0 && (
           <span style={{ fontSize: 12, color: '#d1d5db', fontStyle: 'italic', padding: '8px 0' }}>

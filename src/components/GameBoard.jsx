@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import PlayerBoard from './PlayerBoard.jsx';
 import Hand from './Hand.jsx';
 import Card from './Card.jsx';
@@ -11,6 +11,8 @@ export default function GameBoard({ gameState, playerId, playerNames, actions, r
   const [moveModal,        setMoveModal]         = useState(null);
   const [discardModal,     setDiscardModal]      = useState(false);
   const [discardSelected,  setDiscardSelected]   = useState([]);
+  const [flyingCard,       setFlyingCard]        = useState(null);
+  const boardRef = useRef(null);
 
   const me            = gameState.players[playerId];
   const opponents     = gameState.playerOrder.filter(id => id !== playerId);
@@ -44,6 +46,12 @@ export default function GameBoard({ gameState, playerId, playerNames, actions, r
     } else {
       actions.endTurn();
     }
+  }
+
+  function handleCardPlayed(card, sourceRect) {
+    if (!sourceRect) return;
+    setFlyingCard({ card, sourceRect });
+    setTimeout(() => setFlyingCard(null), 520);
   }
 
   function pendingHighlightIds(pid) {
@@ -258,7 +266,7 @@ export default function GameBoard({ gameState, playerId, playerNames, actions, r
       )}
 
       {/* ── Scrollable board ── */}
-      <div style={{
+      <div ref={boardRef} style={{
         flex: 1,
         overflowY: 'auto',
         padding: '12px',
@@ -325,6 +333,7 @@ export default function GameBoard({ gameState, playerId, playerNames, actions, r
           onCancelTargeting={cancelTargeting}
           targetingMode={!!targeting}
           onEndTurn={handleEndTurn}
+          onCardPlayed={handleCardPlayed}
         />
       </div>
 
@@ -396,6 +405,15 @@ export default function GameBoard({ gameState, playerId, playerNames, actions, r
     </div>
   </div>
 )}
+
+      {/* ── Flying card animation ── */}
+      {flyingCard && (
+        <FlyingCard
+          card={flyingCard.card}
+          sourceRect={flyingCard.sourceRect}
+          boardRef={boardRef}
+        />
+      )}
 
       {/* ── Discard Modal ── */}
       {discardModal && (
@@ -760,6 +778,42 @@ function PaymentModal({ amount, player, selectedCards, selectedTotal, onToggle, 
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+// ── Flying Card ───────────────────────────────────────────────
+
+function FlyingCard({ card, sourceRect, boardRef }) {
+  const [animating, setAnimating] = useState(false);
+
+  useEffect(() => {
+    const id = setTimeout(() => setAnimating(true), 16);
+    return () => clearTimeout(id);
+  }, []);
+
+  const boardRect = boardRef.current?.getBoundingClientRect();
+  const destX = (boardRect ? boardRect.left + boardRect.width / 2 : window.innerWidth / 2) - 36;
+  const destY = (boardRect ? boardRect.top + boardRect.height * 0.55 : window.innerHeight * 0.4) - 50;
+
+  const dx = destX - sourceRect.left;
+  const dy = destY - sourceRect.top;
+
+  return (
+    <div style={{
+      position: 'fixed',
+      left: sourceRect.left,
+      top: sourceRect.top,
+      transform: animating ? `translate(${dx}px, ${dy}px) scale(0.8)` : 'translate(0,0) scale(1)',
+      opacity: animating ? 0 : 1,
+      transition: animating
+        ? 'transform 0.45s cubic-bezier(0.4,0,0.2,1), opacity 0.35s ease 0.12s'
+        : 'none',
+      pointerEvents: 'none',
+      zIndex: 200,
+      willChange: 'transform, opacity',
+    }}>
+      <Card card={card} />
     </div>
   );
 }
