@@ -104,7 +104,7 @@ export default function Hand({
             color: '#be185d',
             onPress: () => playAction({ rentColor: c }),
           });
-          if (hasDoubleRent) {
+          if (hasDoubleRent && actionsLeft > 1) {
             opts.push({
               label: `2× ${c} rent`,
               color: '#9d174d',
@@ -119,7 +119,7 @@ export default function Hand({
               color: '#be185d',
               onPress: () => playAction({ rentColor: c, targetPlayerId: tid }),
             });
-            if (hasDoubleRent) {
+            if (hasDoubleRent && actionsLeft > 1) {
               opts.push({
                 label: `2× ${c} → ${name}`,
                 color: '#9d174d',
