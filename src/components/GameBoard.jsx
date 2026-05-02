@@ -9,6 +9,8 @@ export default function GameBoard({ gameState, playerId, playerNames, actions, r
   const [paymentModal,     setPaymentModal]      = useState(null);
   const [selectedPayCards, setSelectedPayCards]  = useState([]);
   const [moveModal,        setMoveModal]         = useState(null);
+  const [discardModal,     setDiscardModal]      = useState(false);
+  const [discardSelected,  setDiscardSelected]   = useState([]);
 
   const me            = gameState.players[playerId];
   const opponents     = gameState.playerOrder.filter(id => id !== playerId);
@@ -27,9 +29,22 @@ export default function GameBoard({ gameState, playerId, playerNames, actions, r
   // Auto end turn after 3 actions, but only once any pending responses are resolved
   useEffect(() => {
     if (!isMyTurn || gameState.actionsUsed < 3 || gameState.phase !== 'playing') return;
+    if ((me?.hand?.length ?? 0) > 7) {
+      const timer = setTimeout(() => { setDiscardSelected([]); setDiscardModal(true); }, 600);
+      return () => clearTimeout(timer);
+    }
     const timer = setTimeout(() => actions.endTurn(), 600);
     return () => clearTimeout(timer);
   }, [gameState.actionsUsed, gameState.phase, isMyTurn]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  function handleEndTurn() {
+    if ((me?.hand?.length ?? 0) > 7) {
+      setDiscardSelected([]);
+      setDiscardModal(true);
+    } else {
+      actions.endTurn();
+    }
+  }
 
   function pendingHighlightIds(pid) {
     if (!pending) return null;
@@ -309,6 +324,7 @@ export default function GameBoard({ gameState, playerId, playerNames, actions, r
           onEnterTargeting={enterTargeting}
           onCancelTargeting={cancelTargeting}
           targetingMode={!!targeting}
+          onEndTurn={handleEndTurn}
         />
       </div>
 
@@ -380,6 +396,23 @@ export default function GameBoard({ gameState, playerId, playerNames, actions, r
     </div>
   </div>
 )}
+
+      {/* ── Discard Modal ── */}
+      {discardModal && (
+        <DiscardModal
+          cards={me?.hand ?? []}
+          excess={(me?.hand?.length ?? 0) - 7}
+          selected={discardSelected}
+          onToggle={card => setDiscardSelected(prev =>
+            prev.find(c => c.id === card.id) ? prev.filter(c => c.id !== card.id) : [...prev, card]
+          )}
+          onConfirm={() => {
+            actions.endTurn(discardSelected.map(c => c.id));
+            setDiscardModal(false);
+            setDiscardSelected([]);
+          }}
+        />
+      )}
 
       {/* ── Move Wildcard Modal ── */}
       {moveModal && (
@@ -726,6 +759,68 @@ function PaymentModal({ amount, player, selectedCards, selectedTotal, onToggle, 
             </button>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Discard Modal ─────────────────────────────────────────────
+
+function DiscardModal({ cards, excess, selected, onToggle, onConfirm }) {
+  const canConfirm = selected.length === excess;
+  const remaining  = excess - selected.length;
+  return (
+    <div style={{
+      position: 'fixed', inset: 0, zIndex: 100,
+      background: 'rgba(0,0,0,0.6)',
+      display: 'flex', alignItems: 'flex-end',
+    }}>
+      <div style={{
+        background: '#fff',
+        borderRadius: '16px 16px 0 0',
+        width: '100%', maxWidth: 480,
+        margin: '0 auto',
+        padding: '20px 16px 32px',
+        maxHeight: '80vh', overflowY: 'auto',
+      }}>
+        <div style={{ fontSize: 16, fontWeight: 700, color: '#111827', marginBottom: 4 }}>
+          Too many cards!
+        </div>
+        <div style={{ fontSize: 13, color: '#dc2626', fontWeight: 600, marginBottom: 4 }}>
+          Choose cards to discard:
+        </div>
+        <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 16 }}>
+          {canConfirm
+            ? `✓ Ready — ${excess} card${excess !== 1 ? 's' : ''} selected`
+            : `Select ${remaining} more card${remaining !== 1 ? 's' : ''} to discard`}
+        </div>
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 20 }}>
+          {cards.map(card => (
+            <Card
+              key={card.id}
+              card={card}
+              selected={!!selected.find(c => c.id === card.id)}
+              highlighted={!selected.find(c => c.id === card.id)}
+              onClick={onToggle}
+            />
+          ))}
+        </div>
+        <button
+          onClick={onConfirm}
+          disabled={!canConfirm}
+          style={{
+            width: '100%',
+            background: canConfirm ? '#dc2626' : '#d1d5db',
+            color: '#fff', border: 'none',
+            borderRadius: 12, padding: '14px',
+            fontSize: 14, fontWeight: 700,
+            cursor: canConfirm ? 'pointer' : 'not-allowed',
+          }}
+        >
+          {canConfirm
+            ? `Discard ${excess} card${excess !== 1 ? 's' : ''}`
+            : `Select ${remaining} more card${remaining !== 1 ? 's' : ''}`}
+        </button>
       </div>
     </div>
   );

@@ -11,6 +11,7 @@ export default function Hand({
   onEnterTargeting,
   onCancelTargeting,
   targetingMode,
+  onEndTurn,
 }) {
   const [selected, setSelected] = useState(null);
 
@@ -306,7 +307,7 @@ export default function Hand({
         )}
         {isMyTurn && (
           <button
-            onClick={() => actions.endTurn()}
+            onClick={onEndTurn ?? (() => actions.endTurn())}
             disabled={!!gameState.pendingAction}
             style={{
               background: gameState.pendingAction ? '#9ca3af' : '#1d4ed8',
