@@ -518,12 +518,13 @@ function PendingBanner({ pending, playerId, gameState, getName, hasJSN, iAmTarge
 
   // When the initiator played the most recent JSN (counter-JSN), the TARGET is now on the hook.
   // When the target played the most recent JSN, the INITIATOR needs to counter or concede.
-  const lastJSNWasInitiator = jsnBy === initiatorId;
+  // Use falsy checks — justSayNoBy is undefined (not null) when no JSN has been played.
+  const lastJSNWasInitiator = !!jsnBy && jsnBy === initiatorId;
 
   // Show the target's response UI when: no JSN in flight, OR the initiator just counter-JSN'd them.
-  const showTargetButtons   = iAmTarget  && (jsnBy === null || lastJSNWasInitiator);
+  const showTargetButtons    = iAmTarget   && (!jsnBy || lastJSNWasInitiator);
   // Show the initiator's response UI when: a target-side JSN is active (not a counter).
-  const showInitiatorButtons = isInitiator && jsnBy !== null && !lastJSNWasInitiator;
+  const showInitiatorButtons = isInitiator && !!jsnBy && !lastJSNWasInitiator;
 
   const typeLabels = {
     payment:         'Debt Collector',
