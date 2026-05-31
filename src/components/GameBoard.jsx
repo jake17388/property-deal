@@ -12,6 +12,7 @@ export default function GameBoard({ gameState, playerId, playerNames, actions, r
   const [discardModal,     setDiscardModal]      = useState(false);
   const [discardSelected,  setDiscardSelected]   = useState([]);
   const [flyingCard,       setFlyingCard]        = useState(null);
+  const [showLog,          setShowLog]           = useState(false);
   const boardRef = useRef(null);
 
   const me            = gameState.players[playerId];
@@ -196,6 +197,17 @@ export default function GameBoard({ gameState, playerId, playerNames, actions, r
         ? `✦ Your Turn (${3 - gameState.actionsUsed}/3)`
         : `${getName(currentTurnId)}'s turn`}
     </div>
+    <button
+      onClick={() => setShowLog(v => !v)}
+      style={{
+        background: showLog ? '#ede9fe' : '#f3f4f6',
+        border: showLog ? '1px solid #c4b5fd' : 'none',
+        borderRadius: 10,
+        width: 36, height: 36, fontSize: 18, cursor: 'pointer',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+      }}
+      title="Game log"
+    >📋</button>
     <button
       onClick={() => setShowSettings(true)}
       style={{
@@ -492,6 +504,9 @@ export default function GameBoard({ gameState, playerId, playerNames, actions, r
           </div>
         </div>
       )}
+
+      {/* ── Game Log Panel ── */}
+      <GameLog entries={gameState.log ?? []} open={showLog} onClose={() => setShowLog(false)} />
     </div>
   );
 }
@@ -898,6 +913,90 @@ function DiscardModal({ cards, excess, selected, onToggle, onConfirm }) {
             ? `Discard ${excess} card${excess !== 1 ? 's' : ''}`
             : `Select ${remaining} more card${remaining !== 1 ? 's' : ''}`}
         </button>
+      </div>
+    </div>
+  );
+}
+
+// ── Game Log ──────────────────────────────────────────────────
+
+function GameLog({ entries, open, onClose }) {
+  const bottomRef = useRef(null);
+
+  useEffect(() => {
+    if (open && bottomRef.current) {
+      bottomRef.current.scrollIntoView({ behavior: 'smooth' });
+    }
+  }, [open, entries.length]);
+
+  return (
+    <div style={{
+      position: 'absolute',
+      top: 0, left: 0, right: 0, bottom: 0,
+      background: 'rgba(0,0,0,0.45)',
+      zIndex: 50,
+      display: 'flex',
+      flexDirection: 'column',
+      justifyContent: 'flex-end',
+      opacity: open ? 1 : 0,
+      pointerEvents: open ? 'auto' : 'none',
+      transition: 'opacity 0.2s ease',
+    }} onClick={onClose}>
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          background: '#1e1b2e',
+          borderRadius: '20px 20px 0 0',
+          maxHeight: '60%',
+          display: 'flex',
+          flexDirection: 'column',
+          transform: open ? 'translateY(0)' : 'translateY(100%)',
+          transition: 'transform 0.25s ease',
+        }}
+      >
+        {/* Header */}
+        <div style={{
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+          padding: '14px 20px 10px',
+          borderBottom: '1px solid rgba(255,255,255,0.08)',
+          flexShrink: 0,
+        }}>
+          <span style={{ fontWeight: 700, fontSize: 14, color: '#e5e7eb' }}>
+            📋 Game Log
+          </span>
+          <button onClick={onClose} style={{
+            background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: 8,
+            color: '#9ca3af', fontSize: 18, width: 30, height: 30, cursor: 'pointer',
+            display: 'flex', alignItems: 'center', justifyContent: 'center', lineHeight: 1,
+          }}>×</button>
+        </div>
+
+        {/* Entries */}
+        <div style={{ overflowY: 'auto', padding: '12px 16px', flex: 1 }}>
+          {entries.length === 0 ? (
+            <div style={{ color: '#6b7280', fontSize: 13, textAlign: 'center', padding: '20px 0' }}>
+              No actions yet.
+            </div>
+          ) : (
+            entries.map((entry, i) => (
+              <div key={i} style={{
+                display: 'flex', gap: 10, alignItems: 'baseline',
+                padding: '5px 0',
+                borderBottom: i < entries.length - 1 ? '1px solid rgba(255,255,255,0.05)' : 'none',
+              }}>
+                <span style={{
+                  fontSize: 10, color: '#6b7280', flexShrink: 0, fontVariantNumeric: 'tabular-nums',
+                }}>
+                  {new Date(entry.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                </span>
+                <span style={{ fontSize: 13, color: '#d1d5db', lineHeight: 1.4 }}>
+                  {entry.message}
+                </span>
+              </div>
+            ))
+          )}
+          <div ref={bottomRef} />
+        </div>
       </div>
     </div>
   );
