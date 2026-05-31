@@ -421,10 +421,20 @@ export function respondToAction(state, responderId, response, options = {}) {
 
   if (response === 'acceptJustSayNo') {
     if (!state.pendingAction?.justSayNoBy) throw new Error('No Just Say No is active.');
-    state.pendingAction = null;
-    state.phase = 'playing';
-    addLog(state, `Just Say No! The action was blocked.`);
-    return state;
+    const pending     = state.pendingAction;
+    const initiatorId = pending.toId ?? pending.initiatorId;
+
+    if (pending.justSayNoBy === initiatorId) {
+      // Initiator counter-JSN'd successfully — target is accepting it, so the original action PROCEEDS.
+      pending.justSayNoBy = null;
+      return resolveAccept(state, responderId, []);
+    } else {
+      // Target's JSN succeeded — initiator accepted it, so the original action is CANCELLED.
+      state.pendingAction = null;
+      state.phase = 'playing';
+      addLog(state, `Just Say No! The action was blocked.`);
+      return state;
+    }
   }
 
   if (response === 'accept') {

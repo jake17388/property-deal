@@ -509,9 +509,21 @@ function findCardInProperties(players, playerId, cardId) {
 }
 
 function PendingBanner({ pending, playerId, gameState, getName, hasJSN, iAmTarget, actions, onOpenPayment }) {
-  const isInitiator  = pending.toId === playerId || pending.initiatorId === playerId;
+  const initiatorId  = pending.toId ?? pending.initiatorId;
+  const isInitiator  = playerId === initiatorId;
   const needsPayment = ['payment', 'birthdayPayment', 'rentPayment'].includes(pending.type);
   const needsAccept  = ['slyDeal', 'forceDeal', 'dealBreaker'].includes(pending.type);
+
+  const jsnBy = pending.justSayNoBy;
+
+  // When the initiator played the most recent JSN (counter-JSN), the TARGET is now on the hook.
+  // When the target played the most recent JSN, the INITIATOR needs to counter or concede.
+  const lastJSNWasInitiator = jsnBy === initiatorId;
+
+  // Show the target's response UI when: no JSN in flight, OR the initiator just counter-JSN'd them.
+  const showTargetButtons   = iAmTarget  && (jsnBy === null || lastJSNWasInitiator);
+  // Show the initiator's response UI when: a target-side JSN is active (not a counter).
+  const showInitiatorButtons = isInitiator && jsnBy !== null && !lastJSNWasInitiator;
 
   const typeLabels = {
     payment:         'Debt Collector',
@@ -527,10 +539,15 @@ function PendingBanner({ pending, playerId, gameState, getName, hasJSN, iAmTarge
     const stolen = findCardInProperties(gameState.players, pending.fromId, pending.targetCardId);
     if (stolen) dealDetail = `Stealing: ${stolen.name}`;
   } else if (pending.type === 'forceDeal' && pending.targetCardId && pending.offeredCardId) {
-    const taken    = findCardInProperties(gameState.players, pending.targetId, pending.targetCardId);
-    const offered  = findCardInProperties(gameState.players, pending.initiatorId, pending.offeredCardId);
+    const taken   = findCardInProperties(gameState.players, pending.targetId,    pending.targetCardId);
+    const offered = findCardInProperties(gameState.players, pending.initiatorId, pending.offeredCardId);
     if (taken && offered) dealDetail = `Taking: ${taken.name} · Offering: ${offered.name}`;
     else if (taken)       dealDetail = `Taking: ${taken.name}`;
+  }
+
+  function playJSN() {
+    const jsn = gameState.players[playerId].hand.find(c => c.action === 'justSayNo');
+    actions.respondToAction('justSayNo', jsn.id);
   }
 
   return (
@@ -549,45 +566,49 @@ function PendingBanner({ pending, playerId, gameState, getName, hasJSN, iAmTarge
           {pending.remaining?.length > 0 && ` · ${pending.remaining.length} player(s) left to pay`}
           {dealDetail && dealDetail}
         </div>
-        {pending.justSayNoBy && (
+        {jsnBy && (
           <div style={{ fontSize: 11, color: '#dc2626', fontWeight: 600, marginTop: 2 }}>
-            Just Say No by {getName(pending.justSayNoBy)}
+            🚫 Just Say No! by {getName(jsnBy)}
+            {lastJSNWasInitiator && ' — counter Just Say No!'}
           </div>
         )}
       </div>
 
-      {iAmTarget && !pending.justSayNoBy && (
+      {/* Target responds: initial action OR after initiator's counter-JSN */}
+      {showTargetButtons && (
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           {needsPayment && (
-            <ActionBtn label="Choose cards to pay" color="#15803d" onClick={onOpenPayment} />
+            <ActionBtn
+              label={lastJSNWasInitiator ? 'Pay (JSN countered)' : 'Choose cards to pay'}
+              color="#15803d"
+              onClick={onOpenPayment}
+            />
           )}
           {needsAccept && (
-            <ActionBtn label="Accept" color="#15803d" onClick={() => actions.respondToAction('accept')} />
+            <ActionBtn
+              label={lastJSNWasInitiator ? 'Accept (JSN countered)' : 'Accept'}
+              color="#15803d"
+              onClick={() => lastJSNWasInitiator
+                ? actions.respondToAction('acceptJustSayNo')
+                : actions.respondToAction('accept')
+              }
+            />
           )}
           {hasJSN && (
             <ActionBtn
-              label="Just Say No!"
+              label={lastJSNWasInitiator ? 'Counter with Just Say No!' : 'Just Say No!'}
               color="#dc2626"
-              onClick={() => {
-                const jsn = gameState.players[playerId].hand.find(c => c.action === 'justSayNo');
-                actions.respondToAction('justSayNo', jsn.id);
-              }}
+              onClick={playJSN}
             />
           )}
         </div>
       )}
 
-      {isInitiator && pending.justSayNoBy && (
+      {/* Initiator responds: after a target-side JSN */}
+      {showInitiatorButtons && (
         <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           {hasJSN && (
-            <ActionBtn
-              label="Counter with Just Say No!"
-              color="#7c3aed"
-              onClick={() => {
-                const jsn = gameState.players[playerId].hand.find(c => c.action === 'justSayNo');
-                actions.respondToAction('justSayNo', jsn.id);
-              }}
-            />
+            <ActionBtn label="Counter with Just Say No!" color="#7c3aed" onClick={playJSN} />
           )}
           <ActionBtn
             label="Accept — action blocked"
@@ -597,8 +618,10 @@ function PendingBanner({ pending, playerId, gameState, getName, hasJSN, iAmTarge
         </div>
       )}
 
-      {!iAmTarget && !isInitiator && (
-        <div style={{ fontSize: 12, color: '#b45309' }}>Waiting for response...</div>
+      {!showTargetButtons && !showInitiatorButtons && (
+        <div style={{ fontSize: 12, color: '#b45309' }}>
+          {jsnBy === playerId ? `Waiting for ${getName(lastJSNWasInitiator ? pending.fromId ?? pending.targetId : initiatorId)} to respond…` : 'Waiting for response…'}
+        </div>
       )}
     </div>
   );

@@ -151,16 +151,27 @@ function getPendingBotResponder(room) {
   const botIds = new Set(room.players.filter(p => p.isBot).map(p => p.id));
 
   if (pending.justSayNoBy) {
-    // Find the "other side" — not the JSN player — among involved parties.
-    let otherSide = null;
+    const initiatorId = pending.toId ?? pending.initiatorId;
+    const lastJSNWasInitiator = pending.justSayNoBy === initiatorId;
+
     if (pending.type === 'payment' || pending.type === 'slyDeal' || pending.type === 'dealBreaker') {
-      otherSide = [pending.fromId, pending.toId].find(id => id && id !== pending.justSayNoBy);
-    } else if (pending.type === 'forceDeal') {
-      otherSide = [pending.initiatorId, pending.targetId].find(id => id && id !== pending.justSayNoBy);
-    } else if (pending.type === 'birthdayPayment' || pending.type === 'rentPayment') {
-      otherSide = pending.toId !== pending.justSayNoBy ? pending.toId : null;
+      const otherSide = [pending.fromId, pending.toId].find(id => id && id !== pending.justSayNoBy);
+      return otherSide && botIds.has(otherSide) ? otherSide : null;
     }
-    return otherSide && botIds.has(otherSide) ? otherSide : null;
+    if (pending.type === 'forceDeal') {
+      const otherSide = [pending.initiatorId, pending.targetId].find(id => id && id !== pending.justSayNoBy);
+      return otherSide && botIds.has(otherSide) ? otherSide : null;
+    }
+    if (pending.type === 'birthdayPayment' || pending.type === 'rentPayment') {
+      if (lastJSNWasInitiator) {
+        // Initiator counter-JSN'd — each remaining payer now needs to respond.
+        return pending.remaining?.find(id => botIds.has(id)) ?? null;
+      } else {
+        // A payer JSN'd — the initiator needs to counter or concede.
+        return botIds.has(initiatorId) ? initiatorId : null;
+      }
+    }
+    return null;
   }
 
   if (pending.type === 'payment' || pending.type === 'slyDeal' || pending.type === 'dealBreaker') {
