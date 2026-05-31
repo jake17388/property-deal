@@ -98,15 +98,19 @@ function updateRematchHost(room) {
     room.rematchHostId = null;
     return;
   }
-  const votes = [...room.rematchVotes];
-  // Original host voted + at least one other → host gets priority
-  if (room.hostId && votes.includes(room.hostId) && votes.length >= 2) {
+  const votes    = [...room.rematchVotes];
+  const botCount = room.players.filter(p => p.isBot).length;
+  // Bots auto-join rematches, so count them toward the "enough players" threshold.
+  const totalParticipants = votes.length + botCount;
+
+  // Original host voted + at least one other player (human or bot) → host gets priority
+  if (room.hostId && votes.includes(room.hostId) && totalParticipants >= 2) {
     room.rematchHostId = room.hostId;
     return;
   }
-  // 2+ non-host voters → assign one randomly (stable: keep existing if still eligible)
+  // 2+ human non-host voters (or 1 non-host voter + bots) → assign one randomly
   const nonHostVotes = votes.filter(id => id !== room.hostId);
-  if (nonHostVotes.length >= 2) {
+  if (nonHostVotes.length + botCount >= 2) {
     if (room.rematchHostId && nonHostVotes.includes(room.rematchHostId)) return;
     room.rematchHostId = nonHostVotes[Math.floor(Math.random() * nonHostVotes.length)];
     return;
