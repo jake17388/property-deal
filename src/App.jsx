@@ -3,6 +3,8 @@ import { useGameState, loadSession, clearSession } from './hooks/useGameState';
 import { useState }                        from 'react';
 import GameBoard                           from './components/GameBoard.jsx';
 
+const BOT_NAMES = ['Elon', 'Jeff', 'Warren', 'Bill'];
+
 export default function App() {
   const { socket, connected } = useSocket();
   const {
@@ -110,7 +112,10 @@ export default function App() {
             {/* Per-player vote status */}
             <div style={{ marginBottom: 16 }}>
               {playerOrder.map(pid => {
-                const voted = rematchStatus?.votes?.includes(pid) ?? false;
+                const isBot  = gameState?.players?.[pid] == null
+                  ? false
+                  : !rematchStatus?.votes?.includes(pid) && BOT_NAMES.includes(playerNames[pid]);
+                const voted  = rematchStatus?.votes?.includes(pid) || isBot;
                 const isHost = pid === rematchHostId;
                 return (
                   <div key={pid} style={{
@@ -127,6 +132,7 @@ export default function App() {
                     }}>
                       {playerNames[pid] ?? pid}
                       {pid === playerId ? ' (you)' : ''}
+                      {isBot ? ' 🤖' : ''}
                     </span>
                     {isHost && voted && (
                       <span style={{
@@ -250,7 +256,7 @@ export default function App() {
           </p>
         </div>
 
-        <div style={{ marginBottom: 24 }}>
+        <div style={{ marginBottom: 20 }}>
           <div style={{ fontSize: 12, color: '#9ca3af', fontWeight: 600, marginBottom: 10, letterSpacing: '0.06em' }}>
             PLAYERS ({roomInfo.players.length}/5)
           </div>
@@ -262,23 +268,76 @@ export default function App() {
             }}>
               <div style={{
                 width: 36, height: 36, borderRadius: '50%',
-                background: p.id === roomInfo.hostId ? '#1d4ed8' : '#6b7280',
+                background: p.isBot ? '#7c3aed' : p.id === roomInfo.hostId ? '#1d4ed8' : '#6b7280',
                 display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontSize: 15, fontWeight: 700, color: '#fff', flexShrink: 0,
+                fontSize: p.isBot ? 18 : 15, fontWeight: 700, color: '#fff', flexShrink: 0,
               }}>
-                {p.name[0].toUpperCase()}
+                {p.isBot ? '🤖' : p.name[0].toUpperCase()}
               </div>
               <span style={{ fontSize: 16, fontWeight: 500, color: '#111827' }}>{p.name}</span>
-              {p.id === roomInfo.hostId && (
+              {p.isBot && (
                 <span style={{
-                  marginLeft: 'auto', fontSize: 11, background: '#fef3c7',
+                  fontSize: 10, background: '#f5f3ff',
+                  color: '#7c3aed', borderRadius: 20, padding: '2px 8px',
+                  fontWeight: 600, border: '1px solid #ddd6fe',
+                }}>bot</span>
+              )}
+              {!p.isBot && p.id === roomInfo.hostId && (
+                <span style={{
+                  fontSize: 11, background: '#fef3c7',
                   color: '#92400e', borderRadius: 20, padding: '2px 8px',
                   fontWeight: 600, border: '1px solid #f59e0b',
                 }}>host</span>
               )}
+              {p.isBot && playerId === roomInfo.hostId && (
+                <button
+                  onClick={() => actions.removeBot(p.id)}
+                  style={{
+                    marginLeft: 'auto', background: 'transparent', border: 'none',
+                    color: '#9ca3af', fontSize: 18, cursor: 'pointer',
+                    lineHeight: 1, padding: '0 4px',
+                  }}
+                  title={`Remove ${p.name}`}
+                >
+                  ×
+                </button>
+              )}
+              {!p.isBot && p.id !== roomInfo.hostId && p.id === playerId && (
+                <span style={{ marginLeft: 'auto', fontSize: 11, color: '#9ca3af' }}>you</span>
+              )}
             </div>
           ))}
         </div>
+
+        {/* Add Bot — host only, room not full */}
+        {playerId === roomInfo.hostId && roomInfo.players.length < 5 && (() => {
+          const addedBotNames = roomInfo.players.filter(p => p.isBot).map(p => p.name);
+          const available = BOT_NAMES.filter(n => !addedBotNames.includes(n));
+          if (available.length === 0) return null;
+          return (
+            <div style={{ marginBottom: 20 }}>
+              <div style={{ fontSize: 12, color: '#9ca3af', fontWeight: 600, marginBottom: 8, letterSpacing: '0.06em' }}>
+                ADD A BOT
+              </div>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {available.map(name => (
+                  <button
+                    key={name}
+                    onClick={() => actions.addBot(name)}
+                    style={{
+                      background: '#f5f3ff', color: '#7c3aed',
+                      border: '1.5px solid #ddd6fe', borderRadius: 20,
+                      padding: '6px 14px', fontSize: 13, fontWeight: 600,
+                      cursor: 'pointer',
+                    }}
+                  >
+                    🤖 {name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          );
+        })()}
 
         {error && (
           <div style={{ background: '#fef2f2', color: '#dc2626', borderRadius: 10, padding: '10px 14px', fontSize: 13, marginBottom: 16 }}>

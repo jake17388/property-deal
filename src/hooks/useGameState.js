@@ -99,6 +99,8 @@ export function useGameState(socket) {
       socket.emit('joinRoom', { roomCode, playerName });
     },
     startGame:       ()                          => socket.emit('startGame'),
+    addBot:          (botName)                   => socket.emit('addBot',    { botName }),
+    removeBot:       (botId)                     => socket.emit('removeBot', { botId }),
     playCard:        (cardId, destination, opts) => socket.emit('playCard',        { cardId, destination, options: opts }),
     respondToAction: (response, cardId, opts)    => socket.emit('respondToAction', { response, cardId, options: opts ?? {} }),
     moveWildcard:    (cardId, newColor)          => socket.emit('moveWildcard',    { cardId, newColor }),
