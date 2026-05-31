@@ -1,0 +1,9 @@
+[phases.install]
+cmds = ["npm install"]
+
+# Skip the Vite frontend build — Railway only hosts the backend server
+[phases.build]
+cmds = []
+
+[start]
+cmd = "node server.js"
