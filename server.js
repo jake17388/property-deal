@@ -21,8 +21,13 @@ import {
 
 const app  = express();
 const http = createServer(app);
+
+const allowedOrigins = process.env.CORS_ORIGINS
+  ? process.env.CORS_ORIGINS.split(',').map(o => o.trim())
+  : ['http://localhost:5173', 'http://localhost:4173', 'https://property-deal-chi.vercel.app'];
+
 const io   = new Server(http, {
-  cors: { origin: 'https://property-deal-chi.vercel.app', methods: ['GET', 'POST'] },
+  cors: { origin: allowedOrigins, methods: ['GET', 'POST'] },
 });
 
 app.use(cors());
