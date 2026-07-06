@@ -2,6 +2,7 @@ import { useSocket }                        from './hooks/useSocket';
 import { useGameState, loadSession, clearSession } from './hooks/useGameState';
 import { useState }                        from 'react';
 import GameBoard                           from './components/GameBoard.jsx';
+import DebugSetup                          from './components/DebugSetup.jsx';
 
 const BOT_NAMES = ['Elon', 'Jeff', 'Warren', 'Bill'];
 
@@ -11,8 +12,9 @@ export default function App() {
     roomCode, playerId, roomInfo, gameState, gameOver, error, actions, resignedPlayer, hasSession, rematchStatus,
   } = useGameState(socket);
 
-  const [nameInput, setNameInput] = useState('');
-  const [codeInput, setCodeInput] = useState('');
+  const [nameInput,      setNameInput]      = useState('');
+  const [codeInput,      setCodeInput]      = useState('');
+  const [showDebugSetup, setShowDebugSetup] = useState(false);
 
   // ── Reconnecting ────────────────────────────────────────
   if (!connected && hasSession) {
@@ -201,6 +203,18 @@ export default function App() {
     );
   }
 
+  // ── Debug Setup ─────────────────────────────────────────
+  if (showDebugSetup && roomInfo) return (
+    <DebugSetup
+      players={roomInfo.players}
+      onStart={hands => {
+        actions.debugStartGame(hands);
+        setShowDebugSetup(false);
+      }}
+      onCancel={() => setShowDebugSetup(false)}
+    />
+  );
+
   // ── In Game ─────────────────────────────────────────────
   if (gameState) return (
     <GameBoard
@@ -346,17 +360,33 @@ export default function App() {
         )}
 
         {playerId === roomInfo.hostId ? (
-          <button
-            onClick={actions.startGame}
-            disabled={roomInfo.players.length < 2}
-            style={{
-              width: '100%', background: roomInfo.players.length < 2 ? '#d1d5db' : '#15803d',
-              color: '#fff', border: 'none', borderRadius: 14, padding: '18px',
-              fontSize: 17, fontWeight: 700, cursor: roomInfo.players.length < 2 ? 'not-allowed' : 'pointer',
-            }}
-          >
-            {roomInfo.players.length < 2 ? 'Waiting for players...' : 'Start Game 🚀'}
-          </button>
+          roomInfo.debugMode ? (
+            <button
+              onClick={() => setShowDebugSetup(true)}
+              disabled={roomInfo.players.length < 2}
+              style={{
+                width: '100%',
+                background: roomInfo.players.length < 2 ? '#d1d5db' : '#7c3aed',
+                color: '#fff', border: 'none', borderRadius: 14, padding: '18px',
+                fontSize: 17, fontWeight: 700,
+                cursor: roomInfo.players.length < 2 ? 'not-allowed' : 'pointer',
+              }}
+            >
+              {roomInfo.players.length < 2 ? 'Waiting for players...' : '🔧 Setup Cards'}
+            </button>
+          ) : (
+            <button
+              onClick={actions.startGame}
+              disabled={roomInfo.players.length < 2}
+              style={{
+                width: '100%', background: roomInfo.players.length < 2 ? '#d1d5db' : '#15803d',
+                color: '#fff', border: 'none', borderRadius: 14, padding: '18px',
+                fontSize: 17, fontWeight: 700, cursor: roomInfo.players.length < 2 ? 'not-allowed' : 'pointer',
+              }}
+            >
+              {roomInfo.players.length < 2 ? 'Waiting for players...' : 'Start Game 🚀'}
+            </button>
+          )
         ) : (
           <div style={{ textAlign: 'center', color: '#6b7280', fontSize: 14, padding: '12px 0' }}>
             Waiting for host to start...
@@ -473,6 +503,21 @@ export default function App() {
             }}
           >
             Join
+          </button>
+        </div>
+
+        <div style={{ textAlign: 'center', marginTop: 20 }}>
+          <button
+            onClick={() => { if (nameInput.trim()) actions.createDebugRoom(nameInput); }}
+            disabled={!connected || !nameInput.trim()}
+            style={{
+              background: 'none', border: 'none', color: '#d1d5db',
+              fontSize: 11, cursor: !connected || !nameInput.trim() ? 'default' : 'pointer',
+              padding: '4px 8px', borderRadius: 4,
+            }}
+            title="Open a debug room with manual card setup"
+          >
+            🔧 debug mode
           </button>
         </div>
       </div>

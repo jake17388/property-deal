@@ -10,10 +10,13 @@ import cors from 'cors';
 import { v4 as uuidv4 } from 'uuid';
 
 import {
-  createGame, drawForTurn, playCard,
+  createGame, createGameDebug, drawForTurn, playCard,
   respondToAction, moveWildcard, endTurn,
   resignGame, getCurrentPlayer, checkWin,
 } from './src/game/engine.js';
+import { FULL_DECK } from './src/game/cards.js';
+
+const CARD_MAP = Object.fromEntries(FULL_DECK.map(c => [c.id, c]));
 
 import { BOT_NAMES, getBotMove, getBotResponse, getBotDiscards } from './src/game/botAI.js';
 
@@ -128,9 +131,10 @@ function broadcastRematchStatus(room) {
 
 function emitRoomUpdate(room) {
   io.to(room.roomCode).emit('roomUpdate', {
-    roomCode: room.roomCode,
-    players:  room.players.map(p => ({ id: p.id, name: p.name, isBot: p.isBot ?? false })),
-    hostId:   room.hostId,
+    roomCode:  room.roomCode,
+    players:   room.players.map(p => ({ id: p.id, name: p.name, isBot: p.isBot ?? false })),
+    hostId:    room.hostId,
+    debugMode: room.debugMode ?? false,
     started:  room.started,
   });
 }
@@ -299,7 +303,7 @@ io.on('connection', socket => {
   console.log(`Socket connected: ${socket.id}`);
 
   // ── Create Room ──────────────────────────────────────────
-  socket.on('createRoom', ({ playerName }) => {
+  socket.on('createRoom', ({ playerName, debug }) => {
     if (!playerName?.trim()) return emitError(socket, 'Player name is required.');
 
     const roomCode = generateRoomCode();
@@ -309,6 +313,7 @@ io.on('connection', socket => {
       roomCode,
       hostId:    playerId,
       started:   false,
+      debugMode: !!debug,
       gameState: null,
       players: [{ id: playerId, name: playerName.trim(), socketId: socket.id }],
     };
@@ -365,6 +370,38 @@ io.on('connection', socket => {
     io.to(room.roomCode).emit('gameStarted');
     checkAndScheduleBotTurn(room);
     console.log(`Game started in room ${room.roomCode}`);
+  });
+
+  // ── Debug Start Game (manual hand setup) ─────────────────
+  socket.on('debugStartGame', ({ hands }) => {
+    const room = getRoomBySocket(socket.id);
+    if (!room)           return emitError(socket, 'You are not in a room.');
+    if (!room.debugMode) return emitError(socket, 'Room is not in debug mode.');
+    if (room.started)    return emitError(socket, 'Game already started.');
+
+    const player = getPlayerBySocket(room, socket.id);
+    if (player.id !== room.hostId) return emitError(socket, 'Only the host can start the game.');
+    if (room.players.length < 2)   return emitError(socket, 'Need at least 2 players to start.');
+
+    // Resolve card IDs → card objects from the master deck
+    const manualHands = {};
+    for (const [pid, cardIds] of Object.entries(hands)) {
+      manualHands[pid] = (cardIds ?? []).map(id => CARD_MAP[id]).filter(Boolean);
+    }
+
+    const playerIds = room.players.map(p => p.id);
+    room.gameState  = createGameDebug(playerIds, manualHands);
+    room.started    = true;
+
+    playerIds.forEach(id => {
+      const p = room.players.find(p => p.id === id);
+      if (p) room.gameState.playerNames[id] = p.name;
+    });
+
+    broadcastGameState(room);
+    io.to(room.roomCode).emit('gameStarted');
+    checkAndScheduleBotTurn(room);
+    console.log(`[DEBUG] Game started in room ${room.roomCode} with manual hands`);
   });
 
   // ── Play Card ────────────────────────────────────────────

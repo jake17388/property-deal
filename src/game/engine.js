@@ -69,6 +69,50 @@ export function createGame(playerIds) {
   return state;
 }
 
+// Debug variant — accepts explicit hand assignments; remaining cards shuffled into deck.
+// manualHands: { [playerId]: Card[] }
+export function createGameDebug(playerIds, manualHands) {
+  if (playerIds.length < 2 || playerIds.length > 5) {
+    throw new Error('Property Deal requires 2–5 players.');
+  }
+
+  const assignedIds = new Set(
+    Object.values(manualHands).flat().map(c => c.id)
+  );
+  const remainingDeck = shuffleDeck(FULL_DECK.filter(c => !assignedIds.has(c.id)));
+
+  const players = {};
+  playerIds.forEach(id => {
+    players[id] = {
+      id,
+      hand:       [...(manualHands[id] ?? [])],
+      bank:       [],
+      properties: {},
+    };
+  });
+
+  const state = {
+    players,
+    playerOrder:        playerIds,
+    currentPlayerIndex: 0,
+    deck:               remainingDeck,
+    discard:            [],
+    actionsUsed:        0,
+    phase:              'playing',
+    winner:             null,
+    pendingAction:      null,
+    playerNames:        {},
+    log:                [],
+  };
+
+  playerIds.forEach((id, i) => {
+    state.playerNames[id] = `Player ${i + 1}`;
+  });
+
+  addLog(state, `[DEBUG] Game started with manual hand setup.`);
+  return state;
+}
+
 // ============================================================
 // TURN MANAGEMENT
 // ============================================================

@@ -94,11 +94,16 @@ export function useGameState(socket) {
       pendingNameRef.current = playerName;
       socket.emit('createRoom', { playerName });
     },
+    createDebugRoom: (playerName) => {
+      pendingNameRef.current = playerName;
+      socket.emit('createRoom', { playerName, debug: true });
+    },
     joinRoom: (roomCode, playerName) => {
       pendingNameRef.current = playerName;
       socket.emit('joinRoom', { roomCode, playerName });
     },
     startGame:       ()                          => socket.emit('startGame'),
+    debugStartGame:  (hands)                     => socket.emit('debugStartGame', { hands }),
     addBot:          (botName)                   => socket.emit('addBot',    { botName }),
     removeBot:       (botId)                     => socket.emit('removeBot', { botId }),
     playCard:        (cardId, destination, opts) => socket.emit('playCard',        { cardId, destination, options: opts }),
