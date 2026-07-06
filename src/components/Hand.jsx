@@ -1,6 +1,6 @@
 import { useState, useRef } from 'react';
-import Card from './Card.jsx';
-import { CARD_TYPE, SET_SIZE } from '../game/cards.js';
+import Card, { getColorConfig } from './Card.jsx';
+import { CARD_TYPE, SET_SIZE, RENT_VALUES, BUILDING_BONUS } from '../game/cards.js';
 
 export default function Hand({
   cards,
@@ -14,8 +14,11 @@ export default function Hand({
   onEndTurn,
   onCardPlayed,
 }) {
-  const [selected, setSelected] = useState(null);
-  const cardRefs = useRef({});
+  const [selected,  setSelected]  = useState(null);
+  const [infoCard,  setInfoCard]  = useState(null);
+  const cardRefs       = useRef({});
+  const longPressTimer = useRef(null);
+  const longPressFired = useRef(false);
 
   const isMyTurn    = gameState.playerOrder[gameState.currentPlayerIndex] === playerId;
   const actionsLeft = 3 - actionsUsed;
@@ -24,8 +27,21 @@ export default function Hand({
   const myProps     = gameState.players[playerId]?.properties ?? {};
 
   function selectCard(card) {
+    if (longPressFired.current) { longPressFired.current = false; return; }
     if (!isMyTurn || targetingMode) return;
     setSelected(prev => prev?.id === card.id ? null : card);
+  }
+
+  function handlePointerDown(card) {
+    longPressFired.current = false;
+    longPressTimer.current = setTimeout(() => {
+      longPressFired.current = true;
+      setInfoCard(card);
+    }, 480);
+  }
+
+  function handlePointerUp() {
+    clearTimeout(longPressTimer.current);
   }
 
   function clearSelected() {
@@ -349,6 +365,10 @@ export default function Hand({
             key={card.id}
             ref={el => { if (el) cardRefs.current[card.id] = el; else delete cardRefs.current[card.id]; }}
             style={{ flexShrink: 0 }}
+            onPointerDown={() => handlePointerDown(card)}
+            onPointerUp={handlePointerUp}
+            onPointerCancel={handlePointerUp}
+            onPointerLeave={handlePointerUp}
           >
             <Card
               card={card}
@@ -364,10 +384,139 @@ export default function Hand({
           </span>
         )}
       </div>
+
+      {infoCard && (
+        <HandCardInfo
+          card={infoCard}
+          myProperties={gameState.players[playerId]?.properties ?? {}}
+          onClose={() => setInfoCard(null)}
+        />
+      )}
     </div>
   );
 }
 
 function getPlayerName(gameState, playerId) {
   return gameState.playerNames?.[playerId] ?? playerId?.slice(0, 6) ?? 'Player';
+}
+
+// ── Hand Card Info Modal (long-press) ──────────────────────────
+
+function HandCardInfo({ card, myProperties, onClose }) {
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed', inset: 0, zIndex: 200,
+        background: 'rgba(0,0,0,0.5)',
+        display: 'flex', alignItems: 'center', justifyContent: 'center',
+        padding: 24,
+      }}
+    >
+      <div onClick={e => e.stopPropagation()} style={{
+        background: '#fff', borderRadius: 16,
+        width: '100%', maxWidth: 280,
+        overflow: 'hidden',
+        boxShadow: '0 20px 60px rgba(0,0,0,0.35)',
+      }}>
+        {card.type === CARD_TYPE.PROPERTY || card.type === CARD_TYPE.WILDCARD
+          ? <PropertyCardInfo card={card} myProperties={myProperties} onClose={onClose} />
+          : <ActionCardInfo card={card} onClose={onClose} />
+        }
+      </div>
+    </div>
+  );
+}
+
+function PropertyCardInfo({ card, myProperties, onClose }) {
+  const colors = card.type === CARD_TYPE.WILDCARD ? card.colors : [card.color];
+
+  return (
+    <>
+      {colors.map(color => {
+        const cfg       = getColorConfig(color);
+        const rentTable = RENT_VALUES[color] ?? [];
+        const setSize   = SET_SIZE[color] ?? rentTable.length;
+        const existing  = myProperties[color]?.cards.length ?? 0;
+        const projected = Math.min(existing + 1, rentTable.length);
+
+        return (
+          <div key={color}>
+            <div style={{ background: cfg.bg, padding: '12px 16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ fontSize: 14, fontWeight: 700, color: '#fff' }}>
+                {card.name ?? cfg.label}
+              </span>
+              <span onClick={onClose} style={{ fontSize: 18, color: 'rgba(255,255,255,0.8)', cursor: 'pointer', lineHeight: 1 }}>×</span>
+            </div>
+            <div style={{ padding: '12px 16px' }}>
+              {rentTable.map((rent, i) => {
+                const level    = i + 1;
+                const isActive = level === projected;
+                const isFull   = level === setSize;
+                return (
+                  <div key={i} style={{
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    padding: '5px 10px', borderRadius: 8, marginBottom: 4,
+                    background: isActive ? cfg.light : 'transparent',
+                    border: `1.5px solid ${isActive ? cfg.bg : 'transparent'}`,
+                    fontWeight: isActive ? 700 : 400,
+                  }}>
+                    <span style={{ fontSize: 13, color: '#374151' }}>
+                      {level} card{level > 1 ? 's' : ''}{isFull ? ' ✓' : ''}
+                    </span>
+                    <span style={{ fontSize: 14, color: isActive ? cfg.bg : '#374151' }}>
+                      ${rent}M{isActive ? ' ◀' : ''}
+                    </span>
+                  </div>
+                );
+              })}
+              <div style={{ marginTop: 6, fontSize: 11, color: '#9ca3af', textAlign: 'center' }}>
+                {card.type === CARD_TYPE.WILDCARD ? `Can join: ${colors.join(' or ')}` : `Set size: ${setSize}`}
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </>
+  );
+}
+
+function ActionCardInfo({ card, onClose }) {
+  const isRent = card.type === CARD_TYPE.RENT;
+
+  let description = card.description;
+  if (!description && isRent) {
+    const allColors = card.colors.length >= 8;
+    const colorStr  = allColors ? 'any color' : card.colors.join(' or ');
+    const who       = card.allPlayers ? 'all players pay you' : 'one player of your choice pays';
+    description = `Charge ${colorStr} rent — ${who}.`;
+  }
+
+  return (
+    <>
+      <div style={{
+        background: '#1f2937', padding: '12px 16px',
+        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+      }}>
+        <span style={{ fontSize: 14, fontWeight: 700, color: '#f9fafb' }}>
+          {card.name ?? 'Card'}
+        </span>
+        <span onClick={onClose} style={{ fontSize: 18, color: 'rgba(255,255,255,0.6)', cursor: 'pointer', lineHeight: 1 }}>×</span>
+      </div>
+      <div style={{ padding: '16px' }}>
+        <p style={{ fontSize: 14, color: '#374151', lineHeight: 1.5, margin: '0 0 12px' }}>
+          {description ?? 'No description available.'}
+        </p>
+        {card.bankValue != null && (
+          <div style={{
+            fontSize: 12, color: '#6b7280',
+            background: '#f9fafb', borderRadius: 8, padding: '6px 10px',
+            border: '1px solid #e5e7eb',
+          }}>
+            Bank value: <strong>${card.bankValue}M</strong>
+          </div>
+        )}
+      </div>
+    </>
+  );
 }

@@ -136,6 +136,7 @@ export function drawForTurn(state, playerId) {
 
 export function endTurn(state, playerId, discardIds = []) {
   assertCurrentPlayer(state, playerId);
+  assertNotMovingWildcard(state);
   const player = state.players[playerId];
 
   const excess = state.debugMode ? 0 : player.hand.length - MAX_HAND_SIZE;
@@ -220,6 +221,7 @@ export function resignGame(state, playerId) {
 
 export function playCard(state, playerId, cardId, destination, options = {}) {
   assertCurrentPlayer(state, playerId);
+  assertNotMovingWildcard(state);
   assertActionsRemaining(state);
 
   const player  = state.players[playerId];
@@ -271,7 +273,19 @@ function playToProperty(state, player, card, { targetColor } = {}) {
   player.properties[color].cards.push(card);
   state.actionsUsed += 1;
   addLog(state, `${player.id} played ${getCardName(card)} to ${color}.`);
-  checkWin(state);
+
+  // If the group is now overfull (played onto a full set that contained a wildcard),
+  // require the player to move a wildcard out before continuing.
+  const group = player.properties[color];
+  if (group.cards.length > (SET_SIZE[color] ?? 0)) {
+    const hasWild = group.cards.some(c => c.type === CARD_TYPE.WILDCARD);
+    if (!hasWild) throw new Error(`The ${color} set is full and has no wildcard to move.`);
+    state.phase = 'movingWildcard';
+    state.pendingAction = { type: 'wildcardOverflow', playerId: player.id, color };
+    addLog(state, `${player.id} must move a wildcard out of their overfull ${color} set.`);
+  } else {
+    checkWin(state);
+  }
   return state;
 }
 
@@ -702,6 +716,17 @@ export function moveWildcard(state, playerId, cardId, newColor) {
   }
   player.properties[newColor].cards.push(foundCard);
   addLog(state, `${playerId} moved a wildcard from ${oldColor} to ${newColor}.`);
+
+  // Resolve wildcardOverflow if the overfull group is now back to capacity
+  if (state.phase === 'movingWildcard' && state.pendingAction?.type === 'wildcardOverflow') {
+    const { color: overflowColor } = state.pendingAction;
+    const overflowGroup = player.properties[overflowColor];
+    if (!overflowGroup || overflowGroup.cards.length <= (SET_SIZE[overflowColor] ?? 0)) {
+      state.pendingAction = null;
+      state.phase = 'playing';
+    }
+  }
+
   checkWin(state);
   return state;
 }
@@ -809,6 +834,12 @@ function resolvePropertyColor(card, targetColor) {
 function assertCurrentPlayer(state, playerId) {
   const current = state.playerOrder[state.currentPlayerIndex];
   if (playerId !== current) throw new Error(`It is not ${playerId}'s turn.`);
+}
+
+function assertNotMovingWildcard(state) {
+  if (state.phase === 'movingWildcard') {
+    throw new Error('Move a wildcard out of your overfull set before continuing.');
+  }
 }
 
 function assertActionsRemaining(state) {

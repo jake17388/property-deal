@@ -147,6 +147,12 @@ export default function GameBoard({ gameState, playerId, playerNames, actions, r
 
   // ── Wildcard move ─────────────────────────────────────────
   function handleMoveWildcard(card, fromColor) {
+    // Two-color wilds have exactly one other destination — skip the modal
+    const others = card.colors.filter(c => c !== fromColor);
+    if (others.length === 1) {
+      actions.moveWildcard(card.id, others[0]);
+      return;
+    }
     setMoveModal({ card, fromColor });
   }
 
@@ -263,8 +269,19 @@ export default function GameBoard({ gameState, playerId, playerNames, actions, r
         </div>
       )}
 
+      {/* ── Wildcard overflow banner ── */}
+      {pending?.type === 'wildcardOverflow' && pending.playerId === playerId && (
+        <div style={{
+          flexShrink: 0,
+          background: '#fef3c7', borderBottom: '2px solid #f59e0b',
+          padding: '10px 16px', fontSize: 13, fontWeight: 600, color: '#92400e',
+        }}>
+          ⚠️ Your <strong>{pending.color}</strong> set is overfull — tap <em>move</em> on a wildcard to relocate it.
+        </div>
+      )}
+
       {/* ── Pending action banner ── */}
-      {pending && !targeting && (
+      {pending && !targeting && pending.type !== 'wildcardOverflow' && (
         <div style={{ flexShrink: 0 }}>
           <PendingBanner
             pending={pending}

@@ -15,7 +15,7 @@ import {
   resignGame, getCurrentPlayer, checkWin,
 } from './src/game/engine.js';
 import { FULL_DECK } from './src/game/cards.js';
-import { BOT_NAMES, getBotMove, getBotResponse, getBotDiscards } from './src/game/botAI.js';
+import { BOT_NAMES, getBotMove, getBotResponse, getBotDiscards, getBotWildcardOverflowMove } from './src/game/botAI.js';
 
 // ============================================================
 // SERVER SETUP
@@ -206,11 +206,44 @@ function checkAndScheduleBotTurn(room) {
     return;
   }
 
+  if (room.gameState.phase === 'movingWildcard') {
+    const pending = room.gameState.pendingAction;
+    if (pending?.playerId && isBotPlayer(room, pending.playerId)) {
+      room.botTimeout = setTimeout(() => executeBotWildcardOverflow(room, pending.playerId), BOT_RESPONSE_DELAY_MS);
+    }
+    return;
+  }
+
   if (room.gameState.phase === 'playing') {
     const currentId = room.gameState.playerOrder[room.gameState.currentPlayerIndex];
     if (isBotPlayer(room, currentId)) {
       room.botTimeout = setTimeout(() => executeBotTurn(room, currentId), BOT_TURN_DELAY_MS);
     }
+  }
+}
+
+function executeBotWildcardOverflow(room, botId) {
+  const state = room.gameState;
+  if (!state || state.phase !== 'movingWildcard') return;
+  if (state.pendingAction?.playerId !== botId) return;
+
+  const move = getBotWildcardOverflowMove(state, botId);
+  if (!move) return;
+
+  try {
+    room.gameState = moveWildcard(state, botId, move.cardId, move.newColor);
+    broadcastGameState(room);
+    if (room.gameState.winner) {
+      const winner = room.players.find(p => p.id === room.gameState.winner);
+      io.to(room.roomCode).emit('gameOver', {
+        winnerId:   room.gameState.winner,
+        winnerName: winner?.name ?? room.gameState.playerNames?.[room.gameState.winner],
+      });
+    } else {
+      checkAndScheduleBotTurn(room);
+    }
+  } catch (err) {
+    console.error(`Bot ${botId} wildcard overflow error:`, err.message);
   }
 }
 
@@ -468,7 +501,15 @@ io.on('connection', socket => {
     try {
       room.gameState = moveWildcard(room.gameState, player.id, cardId, newColor);
       broadcastGameState(room);
-      checkAndScheduleBotTurn(room);
+      if (room.gameState.winner) {
+        const winner = room.players.find(p => p.id === room.gameState.winner);
+        io.to(room.roomCode).emit('gameOver', {
+          winnerId:   room.gameState.winner,
+          winnerName: winner?.name ?? room.gameState.playerNames?.[room.gameState.winner],
+        });
+      } else {
+        checkAndScheduleBotTurn(room);
+      }
     } catch (err) {
       emitError(socket, err.message);
     }

@@ -118,6 +118,35 @@ export function getBotResponse(state, _botId) {
   return { response: 'accept', options: { selectedCardIds: [] } };
 }
 
+// Returns { cardId, newColor } to resolve a wildcardOverflow pending action, or null.
+export function getBotWildcardOverflowMove(state, botId) {
+  const pending = state.pendingAction;
+  if (pending?.type !== 'wildcardOverflow' || pending.playerId !== botId) return null;
+
+  const { color: overflowColor } = pending;
+  const bot = state.players[botId];
+  const group = bot.properties[overflowColor];
+  if (!group) return null;
+
+  const wild = group.cards.find(c => c.type === CARD_TYPE.WILDCARD);
+  if (!wild) return null;
+
+  // Pick the alternate color where the bot has the most cards (closest to completing)
+  const altColors = wild.colors.filter(c => c !== overflowColor);
+  if (altColors.length === 0) return null;
+
+  let bestColor = altColors[0];
+  let bestScore = -1;
+  for (const c of altColors) {
+    const have  = bot.properties[c]?.cards.length ?? 0;
+    const need  = SET_SIZE[c] ?? 3;
+    const score = have / need + (have > 0 ? 0.1 : 0);
+    if (score > bestScore) { bestScore = score; bestColor = c; }
+  }
+
+  return { cardId: wild.id, newColor: bestColor };
+}
+
 // Returns card IDs the bot should discard to reach MAX_HAND_SIZE.
 export function getBotDiscards(state, botId) {
   const bot = state.players[botId];
