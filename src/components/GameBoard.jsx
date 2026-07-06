@@ -30,9 +30,11 @@ export default function GameBoard({ gameState, playerId, playerNames, actions, r
   const hasJSN = me?.hand?.some(c => c.action === 'justSayNo');
 
   // Auto end turn after 3 actions, but only once any pending responses are resolved
+  const debugMode = !!gameState.debugMode;
+
   useEffect(() => {
     if (!isMyTurn || gameState.actionsUsed < 3 || gameState.phase !== 'playing') return;
-    if ((me?.hand?.length ?? 0) > 7) {
+    if (!debugMode && (me?.hand?.length ?? 0) > 7) {
       const timer = setTimeout(() => { setDiscardSelected([]); setDiscardModal(true); }, 600);
       return () => clearTimeout(timer);
     }
@@ -41,7 +43,7 @@ export default function GameBoard({ gameState, playerId, playerNames, actions, r
   }, [gameState.actionsUsed, gameState.phase, isMyTurn]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function handleEndTurn() {
-    if ((me?.hand?.length ?? 0) > 7) {
+    if (!debugMode && (me?.hand?.length ?? 0) > 7) {
       setDiscardSelected([]);
       setDiscardModal(true);
     } else {

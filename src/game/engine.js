@@ -105,6 +105,7 @@ export function createGameDebug(playerIds, manualHands) {
     pendingAction:      null,
     playerNames:        {},
     log:                [],
+    debugMode:          true,
   };
 
   playerIds.forEach((id, i) => {
@@ -137,7 +138,7 @@ export function endTurn(state, playerId, discardIds = []) {
   assertCurrentPlayer(state, playerId);
   const player = state.players[playerId];
 
-  const excess = player.hand.length - MAX_HAND_SIZE;
+  const excess = state.debugMode ? 0 : player.hand.length - MAX_HAND_SIZE;
   if (excess > 0) {
     if (discardIds.length !== excess) {
       throw new Error(`You must discard exactly ${excess} card(s).`);
