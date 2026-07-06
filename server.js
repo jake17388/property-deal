@@ -361,8 +361,8 @@ io.on('connection', socket => {
       if (p) room.gameState.playerNames[id] = p.name;
     });
 
-    // Auto-draw for the first player
-    drawForTurn(room.gameState, playerIds[0]);
+    // Auto-draw for the first player (use shuffled order, not join order)
+    drawForTurn(room.gameState, room.gameState.playerOrder[0]);
 
     broadcastGameState(room);
     io.to(room.roomCode).emit('gameStarted');
@@ -571,7 +571,7 @@ io.on('connection', socket => {
       if (p) room.gameState.playerNames[id] = p.name;
     });
 
-    drawForTurn(room.gameState, playerIds[0]);
+    drawForTurn(room.gameState, room.gameState.playerOrder[0]);
     broadcastGameState(room);
     io.to(room.roomCode).emit('gameStarted');
     checkAndScheduleBotTurn(room);
