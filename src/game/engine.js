@@ -41,9 +41,11 @@ export function createGame(playerIds) {
     };
   });
 
+  const playerOrder = shuffleDeck([...playerIds]);
+
   const state = {
     players,
-    playerOrder:   playerIds,
+    playerOrder,
     currentPlayerIndex: 0,
     deck:          deck.slice(playerIds.length * 5),
     discard:       [],
@@ -544,11 +546,30 @@ function resolveAccept(state, responderId, selectedCardIds = []) {
 // PAYMENT RESOLUTION
 // ============================================================
 
+function validatePaymentSelection(payer, selectedCardIds) {
+  const selectedSet = new Set(selectedCardIds);
+  for (const [color, group] of Object.entries(payer.properties)) {
+    const hotelMissing = group.hasHotel && group.hotelCard && !selectedSet.has(group.hotelCard.id);
+    const houseMissing = group.hasHouse && group.houseCard && !selectedSet.has(group.houseCard.id);
+    // Cannot sell house before hotel
+    if (group.houseCard && selectedSet.has(group.houseCard.id) && hotelMissing) {
+      throw new Error(`You must sell the hotel on your ${color} set before the house.`);
+    }
+    // Cannot sell individual properties before their buildings are cleared
+    for (const card of group.cards) {
+      if (!selectedSet.has(card.id)) continue;
+      if (hotelMissing) throw new Error(`You must sell the hotel on your ${color} set before selling its properties.`);
+      if (houseMissing) throw new Error(`You must sell the house on your ${color} set before selling its properties.`);
+    }
+  }
+}
+
 function resolvePayment(state, payerId, fromId, toId, amount, selectedCardIds = [], skipCleanup = false) {
   const payer     = state.players[fromId];
   const recipient = state.players[toId];
 
   if (selectedCardIds.length > 0) {
+    validatePaymentSelection(payer, selectedCardIds);
     for (const cardId of selectedCardIds) {
       // Check bank first
       const bankIdx = payer.bank.findIndex(c => c.id === cardId);

@@ -645,6 +645,24 @@ function PendingBanner({ pending, playerId, gameState, getName, hasJSN, iAmTarge
 
 // ── Payment Modal ─────────────────────────────────────────────
 
+function getLockedCardIds(player, selectedCardIds) {
+  const selectedSet = new Set(selectedCardIds);
+  const locked = new Set();
+  for (const group of Object.values(player.properties)) {
+    const hotelSelected = group.hotelCard && selectedSet.has(group.hotelCard.id);
+    const houseSelected = group.houseCard && selectedSet.has(group.houseCard.id);
+    // House locked until hotel is selected
+    if (group.hasHotel && !hotelSelected && group.houseCard) locked.add(group.houseCard.id);
+    // Properties locked until all required buildings selected
+    for (const c of group.cards) {
+      if ((group.hasHotel && !hotelSelected) || (group.hasHouse && !houseSelected)) {
+        locked.add(c.id);
+      }
+    }
+  }
+  return locked;
+}
+
 function PaymentModal({ amount, player, selectedCards, selectedTotal, onToggle, onSubmit, onJSN }) {
   const buildingCards = Object.values(player.properties).flatMap(g => [g.houseCard, g.hotelCard].filter(Boolean));
   const allCards   = [...player.bank, ...Object.values(player.properties).flatMap(g => g.cards), ...buildingCards];
@@ -652,6 +670,7 @@ function PaymentModal({ amount, player, selectedCards, selectedTotal, onToggle, 
   const insolvent  = totalAssets < amount;
   const canPay     = selectedTotal >= amount;
   const overpaid   = selectedTotal > amount;
+  const lockedCardIds = getLockedCardIds(player, selectedCards.map(c => c.id));
 
   const sheet = {
     position: 'fixed', inset: 0, zIndex: 100,
@@ -770,19 +789,34 @@ function PaymentModal({ amount, player, selectedCards, selectedTotal, onToggle, 
         <div style={{ fontSize: 11, color: '#9ca3af', fontWeight: 600, marginBottom: 8 }}>PROPERTIES</div>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 16 }}>
           {Object.values(player.properties).flatMap(g => g.cards).map(card => (
-            <Card key={card.id} card={card} selected={!!selectedCards.find(c => c.id === card.id)} onClick={onToggle} />
+            <Card
+              key={card.id} card={card}
+              selected={!!selectedCards.find(c => c.id === card.id)}
+              onClick={lockedCardIds.has(card.id) ? null : onToggle}
+              dimmed={lockedCardIds.has(card.id)}
+            />
           ))}
           {Object.keys(player.properties).length === 0 && <span style={{ fontSize: 12, color: '#d1d5db' }}>No properties</span>}
         </div>
 
         {buildingCards.length > 0 && (
           <>
-            <div style={{ fontSize: 11, color: '#9ca3af', fontWeight: 600, marginBottom: 8 }}>
+            <div style={{ fontSize: 11, color: '#9ca3af', fontWeight: 600, marginBottom: 4 }}>
               BUILDINGS <span style={{ fontWeight: 400, textTransform: 'none', fontSize: 10 }}>(sold at face value)</span>
             </div>
+            {lockedCardIds.size > 0 && (
+              <div style={{ fontSize: 11, color: '#f59e0b', marginBottom: 8 }}>
+                ⚠ Sell hotel before house, buildings before properties
+              </div>
+            )}
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 20 }}>
               {buildingCards.map(card => (
-                <Card key={card.id} card={card} selected={!!selectedCards.find(c => c.id === card.id)} onClick={onToggle} />
+                <Card
+                  key={card.id} card={card}
+                  selected={!!selectedCards.find(c => c.id === card.id)}
+                  onClick={lockedCardIds.has(card.id) ? null : onToggle}
+                  dimmed={lockedCardIds.has(card.id)}
+                />
               ))}
             </div>
           </>
