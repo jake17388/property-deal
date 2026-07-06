@@ -15,9 +15,6 @@ import {
   resignGame, getCurrentPlayer, checkWin,
 } from './src/game/engine.js';
 import { FULL_DECK } from './src/game/cards.js';
-
-const CARD_MAP = Object.fromEntries(FULL_DECK.map(c => [c.id, c]));
-
 import { BOT_NAMES, getBotMove, getBotResponse, getBotDiscards } from './src/game/botAI.js';
 
 // ============================================================
@@ -46,7 +43,8 @@ const PORT = process.env.PORT || 3001;
 // IN-MEMORY GAME STORE
 // ============================================================
 
-const rooms = {};
+const rooms    = {};
+const CARD_MAP = Object.fromEntries(FULL_DECK.map(c => [c.id, c]));
 
 // ============================================================
 // HELPERS
