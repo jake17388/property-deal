@@ -16,6 +16,8 @@ export default function App() {
   const [codeInput,      setCodeInput]      = useState('');
   const [showDebugSetup, setShowDebugSetup] = useState(false);
 
+  const debugUnlocked = new URLSearchParams(window.location.search).has('debug');
+
   // ── Reconnecting ────────────────────────────────────────
   if (!connected && hasSession) {
     const session = loadSession();
@@ -506,20 +508,22 @@ export default function App() {
           </button>
         </div>
 
-        <div style={{ textAlign: 'center', marginTop: 20 }}>
-          <button
-            onClick={() => { if (nameInput.trim()) actions.createDebugRoom(nameInput); }}
-            disabled={!connected || !nameInput.trim()}
-            style={{
-              background: 'none', border: 'none', color: '#d1d5db',
-              fontSize: 11, cursor: !connected || !nameInput.trim() ? 'default' : 'pointer',
-              padding: '4px 8px', borderRadius: 4,
-            }}
-            title="Open a debug room with manual card setup"
-          >
-            🔧 debug mode
-          </button>
-        </div>
+        {debugUnlocked && (
+          <div style={{ textAlign: 'center', marginTop: 20 }}>
+            <button
+              onClick={() => { if (nameInput.trim()) actions.createDebugRoom(nameInput); }}
+              disabled={!connected || !nameInput.trim()}
+              style={{
+                background: 'none', border: 'none', color: '#d1d5db',
+                fontSize: 11, cursor: !connected || !nameInput.trim() ? 'default' : 'pointer',
+                padding: '4px 8px', borderRadius: 4,
+              }}
+              title="Open a debug room with manual card setup"
+            >
+              🔧 debug mode
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
