@@ -579,13 +579,119 @@ function validatePaymentSelection(payer, selectedCardIds) {
   }
 }
 
+// Value a card contributes when handed over as payment.
+function cardValue(card) {
+  return card.value ?? card.bankValue ?? 0;
+}
+
+function sumValues(cards) {
+  return cards.reduce((sum, c) => sum + cardValue(c), 0);
+}
+
+// Cheapest subset of `cards` totalling at least `amount`, or null when the
+// cards cannot cover it. Ties on total are broken toward handing over fewer
+// cards, so a single $5M is preferred over five $1M.
+function minOverpaySubset(cards, amount) {
+  if (amount <= 0) return [];
+  const total = sumValues(cards);
+  if (total < amount) return null;
+
+  // best[sum] = indices of the smallest set of cards adding up to exactly `sum`
+  const best = new Map([[0, []]]);
+  for (let i = 0; i < cards.length; i++) {
+    const value = cardValue(cards[i]);
+    if (value <= 0) continue;
+    for (const [sum, picks] of [...best]) {
+      const next = sum + value;
+      if (next > total) continue;
+      const current = best.get(next);
+      if (!current || picks.length + 1 < current.length) best.set(next, [...picks, i]);
+    }
+  }
+
+  let bestSum = null;
+  for (const sum of best.keys()) {
+    if (sum >= amount && (bestSum === null || sum < bestSum)) bestSum = sum;
+  }
+  if (bestSum === null) return null;
+
+  return best.get(bestSum).map(i => cards[i].id);
+}
+
+// Groups a player can sell from, ordered by how much losing them hurts:
+// incomplete sets first, then complete ones. Buildings only ever sit on
+// complete sets, so incomplete groups never carry a sale prerequisite.
+function sellableGroups(payer) {
+  return Object.entries(payer.properties)
+    .map(([color, group]) => ({
+      group,
+      complete: group.cards.length >= (SET_SIZE[color] ?? 3),
+      // The rules require a group's hotel to be sold before its house, and
+      // both before any of its property cards.
+      queue: [
+        ...(group.hasHotel && group.hotelCard ? [group.hotelCard] : []),
+        ...(group.hasHouse && group.houseCard ? [group.houseCard] : []),
+      ],
+    }))
+    .sort((a, b) => Number(a.complete) - Number(b.complete));
+}
+
+// Picks the cards a player hands over when they accept without choosing any —
+// every bot payment, and humans who accept the auto-selection. Covers the debt
+// while paying as little over it as possible, spending bank money first.
+function selectAutoPayment(payer, amount) {
+  if (amount <= 0) return [];
+
+  const fromBank = minOverpaySubset(payer.bank, amount);
+  if (fromBank) return fromBank;
+
+  // The bank alone cannot settle the debt, so it all goes, and the rest is
+  // covered by selling off the board.
+  const selected = payer.bank.map(c => c.id);
+  let remaining  = amount - sumValues(payer.bank);
+
+  const groups = sellableGroups(payer);
+  const taken  = new Set();
+
+  while (remaining > 0) {
+    // A group offers its next mandatory building sale, or — once its buildings
+    // are gone — any of its remaining property cards.
+    const options = [];
+    for (const entry of groups) {
+      const nextBuilding = entry.queue.find(c => !taken.has(c.id));
+      if (nextBuilding) { options.push({ card: nextBuilding, complete: entry.complete }); continue; }
+      for (const card of entry.group.cards) {
+        if (!taken.has(card.id)) options.push({ card, complete: entry.complete });
+      }
+    }
+    if (options.length === 0) break; // Everything is gone — the debt is paid in full with what there was
+
+    // Settle outright with the cheapest single asset that covers what is left,
+    // rather than dribbling out several and overshooting on the last one.
+    const settles = options
+      .filter(o => cardValue(o.card) >= remaining)
+      .sort((a, b) => cardValue(a.card) - cardValue(b.card));
+    const pick = settles[0] ?? options.sort((a, b) =>
+      Number(a.complete) - Number(b.complete) || cardValue(b.card) - cardValue(a.card)
+    )[0];
+
+    taken.add(pick.card.id);
+    selected.push(pick.card.id);
+    remaining -= cardValue(pick.card);
+  }
+
+  return selected;
+}
+
 function resolvePayment(state, payerId, fromId, toId, amount, selectedCardIds = [], skipCleanup = false) {
   const payer     = state.players[fromId];
   const recipient = state.players[toId];
 
-  if (selectedCardIds.length > 0) {
-    validatePaymentSelection(payer, selectedCardIds);
-    for (const cardId of selectedCardIds) {
+  const paymentIds = selectedCardIds.length > 0 ? selectedCardIds : selectAutoPayment(payer, amount);
+
+  if (paymentIds.length > 0) {
+    validatePaymentSelection(payer, paymentIds);
+    for (const cardId of paymentIds) {
       // Check bank first
       const bankIdx = payer.bank.findIndex(c => c.id === cardId);
       if (bankIdx !== -1) {
@@ -619,23 +725,6 @@ function resolvePayment(state, payerId, fromId, toId, amount, selectedCardIds = 
       }
       if (foundBuilding) continue;
       transferProperty(state, fromId, toId, cardId);
-    }
-  } else {
-    // Auto fallback
-    let remaining = amount;
-    payer.bank.sort((a, b) => (b.value ?? b.bankValue ?? 0) - (a.value ?? a.bankValue ?? 0));
-    while (remaining > 0 && payer.bank.length > 0) {
-      const card = payer.bank.pop();
-      recipient.bank.push(card);
-      remaining -= card.value ?? card.bankValue ?? 0;
-    }
-    if (remaining > 0) {
-      const allProps = getAllPropertyCards(payer);
-      for (const card of allProps) {
-        if (remaining <= 0) break;
-        transferProperty(state, fromId, toId, card.id);
-        remaining -= card.value ?? 0;
-      }
     }
   }
 
@@ -796,10 +885,6 @@ function transferProperty(state, fromId, toId, cardId) {
     }
   }
   throw new Error(`Card ${cardId} not found in ${fromId}'s properties.`);
-}
-
-function getAllPropertyCards(player) {
-  return Object.values(player.properties).flatMap(g => g.cards);
 }
 
 function findPropertyCard(state, playerId, cardId, { allowComplete }) {

@@ -61,7 +61,7 @@ export function getBotMove(state, botId) {
 
   // 8. It's My Birthday — always worth playing when opponents exist
   const birthday = hand.find(c => c.action === 'birthday');
-  if (birthday && opponents.length > 0) {
+  if (birthday && opponents.length > 0 && anyOpponentCanPay(state, botId)) {
     return { cardId: birthday.id, destination: 'action', options: {} };
   }
 
@@ -92,11 +92,14 @@ export function getBotMove(state, botId) {
     return { cardId: moneyCards[0].id, destination: 'bank', options: {} };
   }
 
-  // 13. Bank low-value action cards we can't use (hold JSN and deal breakers)
+  // 13. Bank low-value action cards we can't use (hold JSN and deal breakers,
+  //     and hold rent cards that match a property we own — they are only
+  //     unplayable right now because no opponent has anything to pay with)
   const bankable = hand.find(c =>
     (c.type === CARD_TYPE.ACTION || c.type === CARD_TYPE.RENT) &&
     c.action !== 'justSayNo' &&
-    c.action !== 'dealBreaker'
+    c.action !== 'dealBreaker' &&
+    !(c.type === CARD_TYPE.RENT && rentCardIsUsableLater(c, bot))
   );
   if (bankable) return { cardId: bankable.id, destination: 'bank', options: {} };
 
@@ -218,20 +221,34 @@ function buildRentOptions(state, botId, rentCard, hand) {
 
   const opts = { rentColor: bestColor };
 
-  if (!rentCard.allPlayers) {
+  // Charging someone who has nothing to pay with wastes the card and an action.
+  let targetAssets;
+  if (rentCard.allPlayers) {
+    if (!anyOpponentCanPay(state, botId)) return null;
+    targetAssets = Math.max(...state.playerOrder
+      .filter(id => id !== botId)
+      .map(id => payableAssets(state.players[id])));
+  } else {
     const target = richestOpponent(state, botId);
     if (!target) return null;
     opts.targetPlayerId = target;
+    targetAssets = payableAssets(state.players[target]);
   }
 
-  // Use Double the Rent if available and there's enough actions remaining
+  // Use Double the Rent if available and there's enough actions remaining —
+  // but only when the target can cover more than the undoubled rent.
   const actionsLeft = ACTIONS_PER_TURN - state.actionsUsed;
-  if (actionsLeft >= 2) {
+  if (actionsLeft >= 2 && targetAssets > bestRent) {
     const dtr = hand.find(c => c.action === 'doubleRent');
     if (dtr && bestRent >= 2) opts.doubleRent = true;
   }
 
   return opts;
+}
+
+// A rent card is worth holding if the bot owns property in one of its colors.
+function rentCardIsUsableLater(rentCard, bot) {
+  return (rentCard.colors ?? []).some(color => (bot.properties[color]?.cards.length ?? 0) > 0);
 }
 
 function findSlyDealTarget(state, botId) {
@@ -268,19 +285,35 @@ function findSlyDealTarget(state, botId) {
   return best;
 }
 
+// Everything a player could hand over if they were charged: banked money plus
+// anything on their board. A player with none of it cannot pay at all.
+function payableAssets(player) {
+  const bank = player.bank.reduce((sum, c) => sum + (c.value ?? c.bankValue ?? 0), 0);
+  const board = Object.values(player.properties).reduce((sum, group) =>
+    sum + group.cards.reduce((s, c) => s + (c.value ?? 0), 0)
+      + (group.hasHouse ? (group.houseCard?.value ?? group.houseCard?.bankValue ?? 0) : 0)
+      + (group.hasHotel ? (group.hotelCard?.value ?? group.hotelCard?.bankValue ?? 0) : 0), 0);
+  return bank + board;
+}
+
+// The opponent with the most to lose, ignoring anyone who has nothing at all —
+// charging a player with an empty bank and an empty board just burns the card.
 function richestOpponent(state, botId) {
   let richestId = null;
-  let maxVal    = -1;
+  let maxVal    = 0;
 
   for (const opId of state.playerOrder) {
     if (opId === botId) continue;
-    const val = state.players[opId].bank.reduce(
-      (sum, c) => sum + (c.value ?? c.bankValue ?? 0), 0
-    );
+    const val = payableAssets(state.players[opId]);
     if (val > maxVal) { maxVal = val; richestId = opId; }
   }
 
   return richestId;
+}
+
+// True when at least one opponent could actually pay something.
+function anyOpponentCanPay(state, botId) {
+  return state.playerOrder.some(id => id !== botId && payableAssets(state.players[id]) > 0);
 }
 
 function colorForHouse(state, botId) {
