@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import Card, { getColorConfig } from './Card.jsx';
+import BankStacks, { bankCardValue } from './BankStacks.jsx';
 import { SET_SIZE, RENT_VALUES, BUILDING_BONUS } from '../game/cards.js';
 
 export default function PlayerBoard({
@@ -18,7 +19,7 @@ export default function PlayerBoard({
 }) {
   const [tooltipInfo, setTooltipInfo] = useState(null);
 
-  const bankTotal = player.bank.reduce((sum, c) => sum + (c.value ?? c.bankValue ?? 0), 0);
+  const bankTotal = player.bank.reduce((sum, c) => sum + bankCardValue(c), 0);
   const propertyEntries = Object.entries(player.properties ?? {});
 
   return (
@@ -69,16 +70,8 @@ export default function PlayerBoard({
       </div>
 
       <div style={{ padding: '8px 12px' }}>
-        {/* Bank */}
-        {player.bank.length > 0 && (
-          <div style={{ marginBottom: 8 }}>
-            <div style={{ display: 'flex', gap: 3, flexWrap: 'wrap' }}>
-              {player.bank.map(card => (
-                <Card key={card.id} card={card} small />
-              ))}
-            </div>
-          </div>
-        )}
+        {/* Bank — one stack per denomination, tap a stack to see its cards */}
+        <BankStacks bank={player.bank} />
 
         {/* Properties */}
         {propertyEntries.length > 0 ? (
