@@ -3,6 +3,15 @@ import { useGameState, loadSession, clearSession } from './hooks/useGameState';
 import { useState }                        from 'react';
 import GameBoard                           from './components/GameBoard.jsx';
 import DebugSetup                          from './components/DebugSetup.jsx';
+import Settings                            from './components/Settings.jsx';
+import { cleanUpdateUrl }                  from './hooks/useAppVersion.js';
+
+// Drop the cache-busting ?v= that "Update now" reloads with, so it doesn't
+// stay in the address bar or get bookmarked.
+const cleanedUrl = cleanUpdateUrl(window.location.href);
+if (cleanedUrl !== window.location.href) {
+  window.history.replaceState(window.history.state, '', cleanedUrl);
+}
 
 const BOT_NAMES = ['Elon', 'Jeff', 'Warren', 'Bill'];
 
@@ -15,6 +24,7 @@ export default function App() {
   const [nameInput,      setNameInput]      = useState('');
   const [codeInput,      setCodeInput]      = useState('');
   const [showDebugSetup, setShowDebugSetup] = useState(false);
+  const [showSettings,   setShowSettings]   = useState(false);
 
   const debugUnlocked = new URLSearchParams(window.location.search).has('debug');
 
@@ -410,6 +420,7 @@ export default function App() {
       padding: 24,
     }}>
       <div style={{
+        position: 'relative',
         background: '#fff',
         borderRadius: 20,
         padding: '40px 24px',
@@ -417,6 +428,23 @@ export default function App() {
         maxWidth: 380,
         boxShadow: '0 4px 24px rgba(0,0,0,0.08)',
       }}>
+        <button
+          onClick={() => setShowSettings(true)}
+          title="Settings"
+          aria-label="Settings"
+          style={{
+            position: 'absolute', top: 14, right: 14,
+            background: 'none', border: 'none', cursor: 'pointer',
+            padding: 6, lineHeight: 0, color: '#9ca3af',
+          }}
+        >
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none"
+               stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <circle cx="12" cy="12" r="3" />
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z" />
+          </svg>
+        </button>
+
         <div style={{ textAlign: 'center', marginBottom: 32 }}>
           <div style={{ fontSize: 52, marginBottom: 8 }}>🏠</div>
           <h1 style={{ fontSize: 28, fontWeight: 800, color: '#111827', marginBottom: 4 }}>
@@ -525,6 +553,8 @@ export default function App() {
           </div>
         )}
       </div>
+
+      {showSettings && <Settings onClose={() => setShowSettings(false)} />}
     </div>
   );
 }
