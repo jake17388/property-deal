@@ -7,7 +7,7 @@ Enter your name, pick a game, then create a room or join one with a code:
 | Game | Players | Bots |
 |---|---|---|
 | **Property Deal** — inspired by Monopoly Deal | 2–5 | yes |
-| **Mah Jong** — American mahjong | 2–4 | no, real players only |
+| **Mah Jong** — American mahjong | 2–4 | yes |
 
 ## Running locally
 
@@ -107,4 +107,4 @@ first the hand is a draw.
     conditions, transcribed from the printed card), `match.js` (expands a card
     hand's suit/number/wind placeholders into concrete tile requirements and
     matches a rack against them), `engine.js` (deal, Charleston, turns, claims,
-    blanks, winning)
+    blanks, winning), `botAI.js` (the bots)

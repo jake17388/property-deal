@@ -17,6 +17,11 @@ import {
 import { FULL_DECK } from './src/game/cards.js';
 import * as mj from './src/game/mahjong/engine.js';
 import { BOT_NAMES, getBotMove, getBotResponse, getBotDiscards, getBotWildcardOverflowMove } from './src/game/botAI.js';
+import {
+  BOT_NAMES as MJ_BOT_NAMES,
+  getBotMove as getMahjongBotMove,
+  getBotFallbackMove as getMahjongBotFallbackMove,
+} from './src/game/mahjong/botAI.js';
 
 // ============================================================
 // SERVER SETUP
@@ -58,8 +63,8 @@ function generateRoomCode() {
 // ── Game types ───────────────────────────────────────────────
 
 const GAME_TYPES = {
-  property: { label: 'Property Deal', min: 2, max: 5, bots: true  },
-  mahjong:  { label: 'Mah Jong',      min: 2, max: 4, bots: false },
+  property: { label: 'Property Deal', min: 2, max: 5, bots: true, botNames: BOT_NAMES    },
+  mahjong:  { label: 'Mah Jong',      min: 2, max: 4, bots: true, botNames: MJ_BOT_NAMES },
 };
 
 function gameTypeOf(room) {
@@ -107,6 +112,7 @@ function applyMahjong(socket, fn) {
 
   broadcastGameState(room);
   emitMahjongGameOver(room);
+  checkAndScheduleBotTurn(room);
 }
 
 function emitMahjongGameOver(room) {
@@ -224,6 +230,11 @@ function isBotPlayer(room, playerId) {
   return room.players.some(p => p.id === playerId && p.isBot);
 }
 
+// A table of nothing but bots has nobody to play for, so it stops there.
+function hasHumanPlayer(room) {
+  return room.players.some(p => !p.isBot);
+}
+
 // Returns the bot ID that should act next during a 'responding' phase, or null.
 function getPendingBotResponder(room) {
   const state   = room.gameState;
@@ -271,8 +282,10 @@ function getPendingBotResponder(room) {
 
 // Schedule the next bot action after every game-state broadcast.
 function checkAndScheduleBotTurn(room) {
-  if (!room.gameState || room.gameState.phase === 'gameover') return;
+  if (isMahjong(room)) return scheduleMahjongBot(room);
+
   if (room.botTimeout) { clearTimeout(room.botTimeout); room.botTimeout = null; }
+  if (!room.gameState || room.gameState.phase === 'gameover') return;
 
   if (room.gameState.phase === 'responding') {
     const responder = getPendingBotResponder(room);
@@ -402,6 +415,88 @@ function executeBotResponse(room, botId) {
   }
 }
 
+// ── Mah Jong bots ────────────────────────────────────────────
+
+const MJ_BOT_DELAY_MS = 1200;
+
+// Returns the bot whose move the table is waiting on, or null. During the
+// Charleston that is any bot that has not locked in a pass yet; in play it is
+// only the bot whose turn it is.
+function nextMahjongBot(room) {
+  const state = room.gameState;
+  if (!state) return null;
+
+  const botIds = room.players.filter(p => p.isBot).map(p => p.id);
+
+  if (state.phase === 'charleston') {
+    return botIds.find(id => state.players[id] && !state.players[id].passReady) ?? null;
+  }
+  if (state.phase === 'playing') {
+    const currentId = state.playerOrder[state.currentPlayerIndex];
+    return botIds.includes(currentId) ? currentId : null;
+  }
+  return null;
+}
+
+function scheduleMahjongBot(room) {
+  const waitingOn = room.gameState?.phase !== 'gameover' && hasHumanPlayer(room)
+    ? nextMahjongBot(room)
+    : null;
+
+  // A move already on the clock for the same bot stays on it — sorting or
+  // dragging tiles rebroadcasts the state, and that shouldn't keep pushing
+  // the bot's turn back.
+  if (waitingOn && room.botTimeout && room.botTimeoutFor === waitingOn) return;
+
+  if (room.botTimeout) { clearTimeout(room.botTimeout); room.botTimeout = null; }
+  room.botTimeoutFor = waitingOn;
+  if (!waitingOn) return;
+
+  room.botTimeout = setTimeout(() => executeMahjongBotMove(room, waitingOn), MJ_BOT_DELAY_MS);
+}
+
+function applyMahjongBotMove(state, botId, move) {
+  switch (move?.type) {
+    case 'pass':    return mj.confirmPass(mj.setPassSelection(state, botId, move.tileIds), botId);
+    case 'claim':   return mj.claimDiscard(state, botId, move.size);
+    case 'draw':    return mj.drawFromWall(state, botId);
+    case 'discard': return mj.discardTile(state, botId, move.tileId);
+    case 'declare': return mj.declareMahjong(state, botId);
+    default:        return null;
+  }
+}
+
+function executeMahjongBotMove(room, botId) {
+  room.botTimeout    = null;
+  room.botTimeoutFor = null;
+
+  const state = room.gameState;
+  if (!state || state.phase === 'gameover') return;
+  if (nextMahjongBot(room) !== botId) return;   // the table moved on while we waited
+
+  let next = null;
+  try {
+    next = applyMahjongBotMove(state, botId, getMahjongBotMove(state, botId));
+  } catch (err) {
+    console.error(`Mah Jong bot ${botId} move error:`, err.message);
+  }
+
+  if (!next) {
+    // Fall back to a move that is always legal so the hand doesn't stall.
+    try {
+      next = applyMahjongBotMove(state, botId, getMahjongBotFallbackMove(state, botId));
+    } catch (err) {
+      console.error(`Mah Jong bot ${botId} fallback error:`, err.message);
+    }
+  }
+  if (!next) return;
+
+  room.gameState = next;
+  broadcastGameState(room);
+  emitMahjongGameOver(room);
+  checkAndScheduleBotTurn(room);
+}
+
 // ============================================================
 // SOCKET.IO EVENTS
 // ============================================================
@@ -490,6 +585,7 @@ io.on('connection', socket => {
       });
       broadcastGameState(room);
       io.to(room.roomCode).emit('gameStarted');
+      checkAndScheduleBotTurn(room);
       console.log(`Mah Jong started in room ${room.roomCode}`);
       return;
     }
@@ -658,8 +754,12 @@ io.on('connection', socket => {
         return emitError(socket, err.message);
       }
       broadcastGameState(room);
-      if (room.gameState.phase === 'gameover') emitMahjongGameOver(room);
-      else io.to(room.roomCode).emit('playerResigned', { playerId: player.id, playerName: player.name });
+      if (room.gameState.phase === 'gameover') {
+        emitMahjongGameOver(room);
+      } else {
+        io.to(room.roomCode).emit('playerResigned', { playerId: player.id, playerName: player.name });
+        checkAndScheduleBotTurn(room);
+      }
       return;
     }
 
@@ -780,6 +880,7 @@ io.on('connection', socket => {
     if (isMahjong(room)) {
       broadcastGameState(room);
       io.to(room.roomCode).emit('gameStarted');
+      checkAndScheduleBotTurn(room);
       console.log(`Mah Jong rematch started in room ${room.roomCode} with ${playerIds.length} players.`);
       return;
     }
@@ -799,13 +900,11 @@ io.on('connection', socket => {
     const player = getPlayerBySocket(room, socket.id);
     if (player.id !== room.hostId)  return emitError(socket, 'Only the host can add bots.');
     if (room.started)               return emitError(socket, 'Cannot add bots after the game starts.');
-    if (!GAME_TYPES[gameTypeOf(room)].bots) {
-      return emitError(socket, `${GAME_TYPES[gameTypeOf(room)].label} is real players only.`);
-    }
-    if (room.players.length >= GAME_TYPES[gameTypeOf(room)].max) {
-      return emitError(socket, 'Room is full.');
-    }
-    if (!BOT_NAMES.includes(botName)) return emitError(socket, 'Unknown bot name.');
+
+    const cfg = GAME_TYPES[gameTypeOf(room)];
+    if (!cfg.bots)                        return emitError(socket, `${cfg.label} is real players only.`);
+    if (room.players.length >= cfg.max)   return emitError(socket, 'Room is full.');
+    if (!cfg.botNames.includes(botName))  return emitError(socket, 'Unknown bot name.');
     if (room.players.some(p => p.name === botName && p.isBot)) {
       return emitError(socket, `${botName} is already in the room.`);
     }
