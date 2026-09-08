@@ -132,6 +132,8 @@ export function useGameState(socket) {
     mjUseBlank:      (blankTileId, targetTileId) => socket.emit('mj:useBlank', { blankTileId, targetTileId }),
     mjSetMarked:     (handIds)                   => socket.emit('mj:setMarked', { handIds }),
     mjDeclare:       ()                          => socket.emit('mj:declare'),
+    mjReorder:       (tileIds)                   => socket.emit('mj:reorder', { tileIds }),
+    mjSort:          ()                          => socket.emit('mj:sort'),
   };
 
   return { roomCode, playerId, roomInfo, gameState, gameOver, error, actions, resignedPlayer, hasSession, rematchStatus };

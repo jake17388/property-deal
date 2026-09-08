@@ -69,6 +69,9 @@ export function createGame(playerIds) {
   }
   // The dealer opens the game, so they take the extra 14th tile.
   players[dealer].hand = sortTiles([...players[dealer].hand, wall.shift()]);
+  // From here on the hand array *is* the player's arrangement: tiles are
+  // appended where they can be seen rather than sorted back into the middle,
+  // and only the player moves them.
 
   const state = {
     gameType:          'mahjong',
@@ -146,7 +149,7 @@ function resolvePass(state) {
   order.forEach((id, i) => {
     const toId = order[passTargetIndex(i, round, n)];
     const dest = state.players[toId];
-    dest.hand  = sortTiles([...dest.hand, ...outgoing[id]]);
+    dest.hand  = [...dest.hand, ...outgoing[id]];
     dest.justReceived     = outgoing[id].map(t => t.id);
     dest.justReceivedFrom = 'pass';
   });
@@ -166,6 +169,32 @@ function resolvePass(state) {
     state.charleston.round = next;
     log(state, `Pass ${round + 1} complete. Pass ${next + 1} of ${state.charleston.totalRounds} begins.`);
   }
+  return state;
+}
+
+// ── Arranging your rack ──────────────────────────────────────
+
+export function reorderHand(prev, playerId, tileIds) {
+  const state = clone(prev);
+  const p = state.players[playerId];
+  if (!p) throw new Error('Player not found.');
+
+  const ids = [...new Set(tileIds)];
+  if (ids.length !== p.hand.length) throw new Error('That is not your whole hand.');
+
+  const byId = new Map(p.hand.map(t => [t.id, t]));
+  const next = ids.map(id => byId.get(id));
+  if (next.some(t => !t)) throw new Error('That tile is not in your hand.');
+
+  p.hand = next;
+  return state;
+}
+
+export function sortHand(prev, playerId) {
+  const state = clone(prev);
+  const p = state.players[playerId];
+  if (!p) throw new Error('Player not found.');
+  p.hand = sortTiles(p.hand);
   return state;
 }
 
@@ -206,7 +235,7 @@ export function drawFromWall(prev, playerId) {
 
   const tile = state.wall.shift();
   const p    = state.players[playerId];
-  p.hand     = sortTiles([...p.hand, tile]);
+  p.hand     = [...p.hand, tile];
   p.justReceived     = [tile.id];
   p.justReceivedFrom = 'wall';
   state.claimable = null;
@@ -247,7 +276,7 @@ export function claimDiscard(prev, playerId, size) {
   }
   if (exposed.length !== size) throw new Error('Not enough tiles to lay that down.');
 
-  p.hand      = sortTiles(keep);
+  p.hand      = keep;
   p.exposures = [...p.exposures, { key: tile.key, tiles: exposed }];
 
   state.claimable = null;
@@ -302,7 +331,7 @@ export function useBlank(prev, playerId, blankTileId, targetTileId) {
   const [blank] = p.hand.splice(bIdx, 1);
   const taken   = state.discards[dIdx];
   state.discards[dIdx] = blank;            // the blank takes its place on the pile
-  p.hand = sortTiles([...p.hand, taken]);
+  p.hand = [...p.hand, taken];
   p.justReceived     = [taken.id];
   p.justReceivedFrom = 'pile';
 

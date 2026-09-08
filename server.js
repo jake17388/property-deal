@@ -724,6 +724,14 @@ io.on('connection', socket => {
     applyMahjong(socket, (state, pid) => mj.declareMahjong(state, pid));
   });
 
+  socket.on('mj:reorder', ({ tileIds = [] } = {}) => {
+    applyMahjong(socket, (state, pid) => mj.reorderHand(state, pid, tileIds));
+  });
+
+  socket.on('mj:sort', () => {
+    applyMahjong(socket, (state, pid) => mj.sortHand(state, pid));
+  });
+
   // ── Vote Rematch ─────────────────────────────────────────
   socket.on('voteRematch', () => {
     const room = getRoomBySocket(socket.id);

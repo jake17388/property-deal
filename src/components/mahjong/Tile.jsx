@@ -32,7 +32,7 @@ function visuals(tile) {
   }
 }
 
-export default function Tile({ tile, onClick, selected, small, faceDown, dimmed, highlighted, badge, isNew }) {
+export default function Tile({ tile, onClick, selected, small, faceDown, dimmed, highlighted, badge, isNew, cursor }) {
   const w = small ? 40 : 58;
   const h = small ? 56 : 82;
 
@@ -63,7 +63,7 @@ export default function Tile({ tile, onClick, selected, small, faceDown, dimmed,
         background: v.bodyBg,
         border: selected ? '2px solid #f59e0b' : `2px solid ${v.ink}`,
         display: 'flex', flexDirection: 'column', overflow: 'hidden',
-        cursor: onClick ? 'pointer' : 'default',
+        cursor: cursor ?? (onClick ? 'pointer' : 'default'),
         flexShrink: 0,
         opacity: dimmed ? 0.35 : 1,
         transform: selected ? 'translateY(-8px)' : undefined,

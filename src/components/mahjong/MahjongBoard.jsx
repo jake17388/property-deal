@@ -1,5 +1,6 @@
 import { useState, useMemo, useRef, useEffect } from 'react';
 import Tile from './Tile.jsx';
+import TileRack from './TileRack.jsx';
 import WinCard from './WinCard.jsx';
 import { HANDS_BY_ID, SLOT_COLOR } from '../../game/mahjong/card.js';
 import { claimOptions, winningHandIds, handProgress } from '../../game/mahjong/match.js';
@@ -363,8 +364,19 @@ export default function MahjongBoard({ gameState, playerId, playerNames, actions
         <div style={{
           display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6,
         }}>
-          <span style={{ fontSize: 11, fontWeight: 700, color: '#9ca3af', letterSpacing: '0.06em' }}>
-            YOUR RACK ({me?.hand?.length ?? 0})
+          <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 11, fontWeight: 700, color: '#9ca3af', letterSpacing: '0.06em' }}>
+              YOUR RACK ({me?.hand?.length ?? 0})
+            </span>
+            <button
+              onClick={() => run(() => actions.mjSort())}
+              style={{
+                background: '#f3f4f6', border: '1px solid #e5e7eb', borderRadius: 20,
+                padding: '2px 9px', fontSize: 11, fontWeight: 600, color: '#6b7280',
+                cursor: 'pointer',
+              }}
+              title="Sort your rack by suit and number"
+            >⇅ Sort</button>
           </span>
           <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             {newIds.size > 0 && newLabel && (
@@ -388,21 +400,13 @@ export default function MahjongBoard({ gameState, playerId, playerNames, actions
             )}
           </span>
         </div>
-        <div style={{
-          display: 'flex', gap: 4, flexWrap: 'wrap',
-          paddingBottom: 6, paddingTop: 8, justifyContent: 'center',
-        }}>
-          {(me?.hand ?? []).map(t => (
-            <Tile
-              key={t.id}
-              tile={t}
-              small
-              selected={selected.includes(t.id)}
-              isNew={newIds.has(t.id)}
-              onClick={toggleTile}
-            />
-          ))}
-        </div>
+        <TileRack
+          tiles={me?.hand ?? []}
+          selectedIds={selected}
+          newIds={newIds}
+          onSelect={toggleTile}
+          onReorder={ids => actions.mjReorder(ids)}
+        />
       </div>
 
       {/* ── Action bar ── */}
