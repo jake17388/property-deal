@@ -286,6 +286,37 @@ export default function App() {
     />
   );
 
+  // ── Server too old for the game you picked ──────────────
+  // The frontend and the game server deploy from two different hosts, so the
+  // frontend can land first. A server without game-type support just ignores
+  // the field and hands back a Property Deal room — which would quietly drop a
+  // Mah Jong player into the wrong game. Say what actually happened instead.
+  if (roomInfo && !roomInfo.gameType && gameChoice === 'mahjong') return shellWrapper(
+    <>
+      <div style={{ textAlign: 'center', marginBottom: 20 }}>
+        <div style={{ fontSize: 46, marginBottom: 10 }}>🛠️</div>
+        <h1 style={{ fontSize: 20, fontWeight: 800, color: '#111827', marginBottom: 8 }}>
+          Mah Jong isn't live yet
+        </h1>
+        <p style={{ fontSize: 13.5, color: '#6b7280', lineHeight: 1.55 }}>
+          This app has the new version, but the game server it talks to hasn't been
+          updated yet — so it can only host Property Deal right now. Try again once
+          the server has redeployed.
+        </p>
+      </div>
+      <button
+        onClick={() => { clearSession(); window.location.reload(); }}
+        style={{
+          width: '100%', background: '#1d4ed8', color: '#fff',
+          border: 'none', borderRadius: 14, padding: '16px',
+          fontSize: 16, fontWeight: 700, cursor: 'pointer',
+        }}
+      >
+        Back to games
+      </button>
+    </>
+  );
+
   // ── Lobby ────────────────────────────────────────────────
   if (roomInfo) {
     const game       = GAMES[roomInfo.gameType] ?? GAMES.property;
@@ -469,7 +500,8 @@ export default function App() {
   const selectedGame = GAMES[gameChoice] ?? null;
   const nameReady    = connected && nameInput.trim().length > 0;
 
-  const shell = (children) => (
+  const shell = shellWrapper;
+  function shellWrapper(children) { return (
     <div style={{
       height: '100%',
       background: '#f3f4f6',
@@ -511,7 +543,7 @@ export default function App() {
 
       {showSettings && <Settings onClose={() => setShowSettings(false)} />}
     </div>
-  );
+  ); }
 
   const errorBox = error && (
     <div style={{ background: '#fef2f2', color: '#dc2626', borderRadius: 10, padding: '10px 14px', fontSize: 13, marginBottom: 16 }}>
