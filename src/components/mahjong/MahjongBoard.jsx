@@ -62,11 +62,14 @@ export default function MahjongBoard({ gameState, playerId, playerNames, actions
     wall: 'just drawn',
     pile: 'from the pile',
     pass: 'just received',
+    mixed: 'new tiles',
   }[me?.justReceivedFrom] ?? null;
 
+  // A blank is yours to spend whenever you see the tile you need — it costs you
+  // nothing but the blank, so it doesn't wait on your turn or on the discard
+  // you still owe.
   const myBlank = me?.hand?.find(t => t.kind === TILE_KIND.BLANK);
-  const canUseBlank = !inCharleston && gameState.phase === 'playing'
-    && gameState.turnStage === 'draw' && !!myBlank
+  const canUseBlank = !inCharleston && gameState.phase === 'playing' && !!myBlank
     && gameState.discards.some(t => t.kind !== TILE_KIND.BLANK);
 
   // Keep the newest discard in view.

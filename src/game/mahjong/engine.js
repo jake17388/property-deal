@@ -64,7 +64,7 @@ export function createGame(playerIds) {
       // Tiles that just arrived, so the rack can point them out — sorting drops
       // a new tile into the middle of the rack where it's impossible to spot.
       justReceived:     [],
-      justReceivedFrom: null,   // 'wall' | 'pile' | 'pass'
+      justReceivedFrom: null,   // 'wall' | 'pile' | 'pass' | 'mixed'
     };
   }
   // The dealer opens the game, so they take the extra 14th tile.
@@ -308,15 +308,15 @@ export function discardTile(prev, playerId, tileId) {
 }
 
 // ── Blank tile ───────────────────────────────────────────────
-// A blank can be traded for anything on the discard pile. It is available to
-// any player, but only between turns — while nobody is holding a drawn tile
-// they still have to discard — because it hands the turn to whoever sits after
-// the player who used it.
+// A blank can be traded for anything on the discard pile, by any player, at
+// any point in a hand — the moment you spot the tile you need is the moment
+// you get to take it, whether or not you have drawn and whoever's turn it is.
+// The swap is one tile out and one tile in, so nobody gains a tile they owe a
+// discard for and the turn stays exactly where it was.
 
 export function useBlank(prev, playerId, blankTileId, targetTileId) {
   const state = clone(prev);
   if (state.phase !== 'playing') throw new Error('The game is not in play.');
-  if (state.turnStage !== 'draw') throw new Error('Wait until the current player has discarded.');
 
   const p = state.players[playerId];
   if (!p) throw new Error('Player not found.');
@@ -332,16 +332,16 @@ export function useBlank(prev, playerId, blankTileId, targetTileId) {
   const taken   = state.discards[dIdx];
   state.discards[dIdx] = blank;            // the blank takes its place on the pile
   p.hand = [...p.hand, taken];
-  p.justReceived     = [taken.id];
-  p.justReceivedFrom = 'pile';
 
-  // Play resumes with whoever sits after the player who used the blank.
-  const from = state.playerOrder.indexOf(playerId);
-  state.currentPlayerIndex = (from + 1) % state.playerOrder.length;
-  state.turnStage = 'draw';
+  // The tile you just traded for is new to the rack too. If something else was
+  // already flagged — the tile you drew this turn — both stay flagged, under a
+  // label that doesn't claim they came from the same place.
+  p.justReceivedFrom = p.justReceived.length > 0 ? 'mixed' : 'pile';
+  p.justReceived     = [...p.justReceived, taken.id];
 
-  const top = state.discards[state.discards.length - 1];
-  state.claimable = top && top.kind !== TILE_KIND.BLANK ? { tile: top, byId: null } : null;
+  // Taking the tile someone just discarded takes it off the table: it is in a
+  // rack now, so it is no longer there to be claimed.
+  if (state.claimable?.tile?.id === taken.id) state.claimable = null;
 
   log(state, `${nameOf(state, playerId)} traded a blank for a tile from the discard pile.`);
   return state;

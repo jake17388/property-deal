@@ -87,10 +87,12 @@ than a specific suit: same colour means same suit, different colours mean differ
 suits, so a hand can be built in whichever suits you're actually collecting.
 
 **Blanks.** A blank can be traded for any tile on the discard pile: the blank goes
-onto the pile, the tile comes straight into your hand. Play then resumes with the
-player *after* whoever used the blank. Because it hands the turn on, a blank can be
-spent by any player between turns — while nobody is mid-turn holding a drawn tile
-they still have to discard.
+onto the pile, the tile comes straight into your hand. Any player can spend one at
+any point in the hand — before or after they have drawn, and on someone else's turn
+— because the swap changes nothing but the tiles. It is one out and one in, so your
+rack stays the same size, you owe no extra discard, and the turn stays with whoever
+had it. Taking the tile that was just discarded does take it off the table, so
+nobody can claim it after that.
 
 **Winning.** The moment your 14 tiles complete a win condition it lights up — on the
 card, and in the marked strip under your rack — and a **Mah Jong** button appears.
