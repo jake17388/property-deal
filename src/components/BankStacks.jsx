@@ -6,17 +6,29 @@ export function bankCardValue(card) {
   return card.value ?? card.bankValue ?? 0;
 }
 
-const STACK_W  = 40;
-const STACK_H  = 52;
+const STACK_W  = 44;   // wide enough to stay a comfortable tap target
+const STACK_H  = 58;
 const LAYER_GAP = 3;   // px each buried card peeks out by
 const MAX_LAYERS = 3;  // visual depth cap — the badge carries the real count
 
 // Bank cards collapsed into one stack per denomination ($1M…$10M),
 // so a big bank never pushes the properties off screen.
-export default function BankStacks({ bank }) {
+//
+// onSelectCard turns the stacks into a picker: tapping a stack hands the next
+// card of that denomination to the caller (used by the payment modal) instead
+// of opening the read-only detail sheet.
+export default function BankStacks({ bank, onSelectCard, emptyText, dimmed }) {
   const [openValue, setOpenValue] = useState(null);
 
-  if (!bank?.length) return null;
+  if (!bank?.length) {
+    if (!emptyText) return null;
+    return (
+      <div style={{ marginBottom: 8 }}>
+        <SectionLabel total={0} count={0} />
+        <div style={{ fontSize: 12, color: '#d1d5db' }}>{emptyText}</div>
+      </div>
+    );
+  }
 
   const groups = new Map();
   for (const card of bank) {
@@ -30,17 +42,7 @@ export default function BankStacks({ bank }) {
 
   return (
     <div style={{ marginBottom: 8 }}>
-      <div style={{
-        display: 'flex', alignItems: 'baseline', gap: 6,
-        fontSize: 10, color: '#9ca3af', fontWeight: 600,
-        marginBottom: 4, letterSpacing: '0.06em',
-      }}>
-        BANK
-        <span style={{ color: '#15803d', letterSpacing: 0 }}>${total}M</span>
-        <span style={{ color: '#d1d5db', fontWeight: 400, letterSpacing: 0 }}>
-          · {bank.length} card{bank.length === 1 ? '' : 's'}
-        </span>
-      </div>
+      <SectionLabel total={total} count={bank.length} />
 
       <div style={{
         display: 'flex',
@@ -52,18 +54,24 @@ export default function BankStacks({ bank }) {
         paddingBottom: 4,
         overflowX: 'auto',
         boxSizing: 'border-box',
+        opacity: dimmed ? 0.35 : 1,
       }}>
         {denominations.map(value => (
           <BankStack
             key={value}
             value={value}
             count={groups.get(value).length}
-            onClick={() => setOpenValue(value)}
+            selectable={!!onSelectCard}
+            onClick={() =>
+              onSelectCard
+                ? onSelectCard(groups.get(value)[0])
+                : setOpenValue(value)
+            }
           />
         ))}
       </div>
 
-      {openCards && (
+      {openCards && !onSelectCard && (
         <StackDetail
           value={openValue}
           cards={openCards}
@@ -74,14 +82,34 @@ export default function BankStacks({ bank }) {
   );
 }
 
-function BankStack({ value, count, onClick }) {
+function SectionLabel({ total, count }) {
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'baseline', gap: 6,
+      fontSize: 10, color: '#9ca3af', fontWeight: 600,
+      marginBottom: 4, letterSpacing: '0.06em',
+    }}>
+      BANK
+      <span style={{ color: '#15803d', letterSpacing: 0 }}>${total}M</span>
+      <span style={{ color: '#d1d5db', fontWeight: 400, letterSpacing: 0 }}>
+        · {count} card{count === 1 ? '' : 's'}
+      </span>
+    </div>
+  );
+}
+
+function BankStack({ value, count, selectable, onClick }) {
   const layers = Math.min(count, MAX_LAYERS);
   const spread = (layers - 1) * LAYER_GAP;
 
   return (
     <div
       onClick={onClick}
-      title={`${count} card${count === 1 ? '' : 's'} worth $${value}M each`}
+      title={
+        selectable
+          ? `Tap to add a $${value}M card to your payment (${count} left)`
+          : `${count} card${count === 1 ? '' : 's'} worth $${value}M each`
+      }
       style={{
         position: 'relative',
         width: STACK_W + spread,

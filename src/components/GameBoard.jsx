@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import PlayerBoard from './PlayerBoard.jsx';
+import BankStacks, { bankCardValue } from './BankStacks.jsx';
+import PaymentPile from './PaymentPile.jsx';
 import Hand from './Hand.jsx';
 import Card from './Card.jsx';
 import { SET_SIZE } from '../game/cards.js';
@@ -143,7 +145,7 @@ export default function GameBoard({ gameState, playerId, playerNames, actions, r
     setSelectedPayCards([]);
   }
 
-  const selectedPayTotal = selectedPayCards.reduce((s, c) => s + (c.value ?? c.bankValue ?? 0), 0);
+  const selectedPayTotal = selectedPayCards.reduce((s, c) => s + bankCardValue(c), 0);
 
   // ── Wildcard move ─────────────────────────────────────────
   function handleMoveWildcard(card, fromColor) {
@@ -376,6 +378,7 @@ export default function GameBoard({ gameState, playerId, playerNames, actions, r
           selectedCards={selectedPayCards}
           selectedTotal={selectedPayTotal}
           onToggle={togglePayCard}
+          onClearSelection={() => setSelectedPayCards([])}
           onSubmit={submitPayment}
           onJSN={hasJSN ? () => {
             const jsn = me.hand.find(c => c.action === 'justSayNo');
@@ -682,14 +685,21 @@ function getLockedCardIds(player, selectedCardIds) {
   return locked;
 }
 
-function PaymentModal({ amount, player, selectedCards, selectedTotal, onToggle, onSubmit, onJSN }) {
+function PaymentModal({ amount, player, selectedCards, selectedTotal, onToggle, onClearSelection, onSubmit, onJSN }) {
   const buildingCards = Object.values(player.properties).flatMap(g => [g.houseCard, g.hotelCard].filter(Boolean));
-  const allCards   = [...player.bank, ...Object.values(player.properties).flatMap(g => g.cards), ...buildingCards];
-  const totalAssets = allCards.reduce((sum, c) => sum + (c.value ?? c.bankValue ?? 0), 0);
+  const propertyCards = Object.values(player.properties).flatMap(g => g.cards);
+  const allCards   = [...player.bank, ...propertyCards, ...buildingCards];
+  const totalAssets = allCards.reduce((sum, c) => sum + bankCardValue(c), 0);
   const insolvent  = totalAssets < amount;
   const canPay     = selectedTotal >= amount;
   const overpaid   = selectedTotal > amount;
   const lockedCardIds = getLockedCardIds(player, selectedCards.map(c => c.id));
+
+  // Cards already in the payment pile are shown there, not in their own row
+  const selectedIds       = new Set(selectedCards.map(c => c.id));
+  const unpickedBank      = player.bank.filter(c => !selectedIds.has(c.id));
+  const unpickedProps     = propertyCards.filter(c => !selectedIds.has(c.id));
+  const unpickedBuildings = buildingCards.filter(c => !selectedIds.has(c.id));
 
   const sheet = {
     position: 'fixed', inset: 0, zIndex: 100,
@@ -721,14 +731,7 @@ function PaymentModal({ amount, player, selectedCards, selectedTotal, onToggle, 
             You only have ${totalAssets}M — all your cards will be handed over.
           </div>
 
-          {player.bank.length > 0 && (
-            <>
-              <div style={{ fontSize: 11, color: '#9ca3af', fontWeight: 600, marginBottom: 8 }}>BANK</div>
-              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 16 }}>
-                {player.bank.map(card => <Card key={card.id} card={card} dimmed />)}
-              </div>
-            </>
-          )}
+          <BankStacks bank={player.bank} dimmed />
 
           {Object.keys(player.properties).length > 0 && (
             <>
@@ -785,40 +788,46 @@ function PaymentModal({ amount, player, selectedCards, selectedTotal, onToggle, 
           Pay ${amount}M
         </div>
         <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 4 }}>
-          Tap cards to select what you'll hand over.
+          Tap cards to build your payment pile.
         </div>
         <div style={{
-          fontSize: 13, fontWeight: 600, marginBottom: 16,
+          fontSize: 13, fontWeight: 600, marginBottom: 10,
           color: canPay ? '#15803d' : '#dc2626',
         }}>
-          Selected: ${selectedTotal}M
-          {canPay && !overpaid && ' ✓ exact'}
-          {overpaid && ` ✓ (opponent keeps the overage)`}
-          {!canPay && ` — need $${amount - selectedTotal}M more`}
+          {canPay && !overpaid && '✓ exact amount'}
+          {overpaid && `✓ $${selectedTotal}M — opponent keeps the overage`}
+          {!canPay && `Need $${amount - selectedTotal}M more`}
         </div>
 
-        <div style={{ fontSize: 11, color: '#9ca3af', fontWeight: 600, marginBottom: 8 }}>BANK</div>
-        <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 16 }}>
-          {player.bank.map(card => (
-            <Card key={card.id} card={card} selected={!!selectedCards.find(c => c.id === card.id)} onClick={onToggle} />
-          ))}
-          {player.bank.length === 0 && <span style={{ fontSize: 12, color: '#d1d5db' }}>Bank is empty</span>}
-        </div>
+        <PaymentPile
+          cards={selectedCards}
+          onReturnTop={() => onToggle(selectedCards[selectedCards.length - 1])}
+          onReturnAll={onClearSelection}
+        />
+
+        <BankStacks
+          bank={unpickedBank}
+          onSelectCard={onToggle}
+          emptyText={player.bank.length ? 'Whole bank added' : 'Bank is empty'}
+        />
 
         <div style={{ fontSize: 11, color: '#9ca3af', fontWeight: 600, marginBottom: 8 }}>PROPERTIES</div>
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 16 }}>
-          {Object.values(player.properties).flatMap(g => g.cards).map(card => (
+          {unpickedProps.map(card => (
             <Card
               key={card.id} card={card}
-              selected={!!selectedCards.find(c => c.id === card.id)}
               onClick={lockedCardIds.has(card.id) ? null : onToggle}
               dimmed={lockedCardIds.has(card.id)}
             />
           ))}
-          {Object.keys(player.properties).length === 0 && <span style={{ fontSize: 12, color: '#d1d5db' }}>No properties</span>}
+          {unpickedProps.length === 0 && (
+            <span style={{ fontSize: 12, color: '#d1d5db' }}>
+              {propertyCards.length ? 'All properties added' : 'No properties'}
+            </span>
+          )}
         </div>
 
-        {buildingCards.length > 0 && (
+        {unpickedBuildings.length > 0 && (
           <>
             <div style={{ fontSize: 11, color: '#9ca3af', fontWeight: 600, marginBottom: 4 }}>
               BUILDINGS <span style={{ fontWeight: 400, textTransform: 'none', fontSize: 10 }}>(sold at face value)</span>
@@ -829,10 +838,9 @@ function PaymentModal({ amount, player, selectedCards, selectedTotal, onToggle, 
               </div>
             )}
             <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 20 }}>
-              {buildingCards.map(card => (
+              {unpickedBuildings.map(card => (
                 <Card
                   key={card.id} card={card}
-                  selected={!!selectedCards.find(c => c.id === card.id)}
                   onClick={lockedCardIds.has(card.id) ? null : onToggle}
                   dimmed={lockedCardIds.has(card.id)}
                 />
