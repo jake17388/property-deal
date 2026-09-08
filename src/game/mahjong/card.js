@@ -8,6 +8,11 @@
 //
 // `groupSets` is what the matcher reads; `display` is what the card viewer
 // draws, segment by segment, in slot colours.
+//
+// In the PALINDROME hands the printed card mirrors a group in its own colour,
+// which would ask for six copies of a tile that only exists four times. The
+// mirrored half is a different suit here, so every hand is reachable without
+// leaning on jokers.
 // ============================================================
 
 // ── Group builders ───────────────────────────────────────────
@@ -92,8 +97,8 @@ export const CATEGORIES = [
     hands: [
       {
         id: 'PA1', points: 25, note: 'these #s only', nums: 'lit', winds: 'lit',
-        groupSets: [[N(1, 2, 3), N(3, 4, 3), D(2, 2), N(3, 4, 3), N(1, 2, 3)]],
-        display: [seg('222', 1), seg('444', 3), seg('DD', 2), seg('444', 3), seg('222', 1)],
+        groupSets: [[N(1, 2, 3), N(2, 4, 3), D(3, 2), N(3, 4, 3), N(2, 2, 3)]],
+        display: [seg('222', 1), seg('444', 2), seg('DD', 3), seg('444', 3), seg('222', 2)],
       },
       {
         id: 'PA2', points: 30, note: 'any consec #s', nums: 'consec', winds: 'lit',
@@ -102,13 +107,13 @@ export const CATEGORIES = [
       },
       {
         id: 'PA3', points: 30, note: 'any winds, any like #', nums: 'like', winds: 'var',
-        groupSets: [[W('N', 2), NV(2, 0, 3), F(4), NV(2, 0, 3), W('N', 2)]],
-        display: [seg('NN', 1), seg('111', 2), seg('FFFF', 1), seg('111', 2), seg('NN', 1)],
+        groupSets: [[W('N', 2), NV(2, 0, 3), F(4), NV(3, 0, 3), W('N', 2)]],
+        display: [seg('NN', 1), seg('111', 2), seg('FFFF', 1), seg('111', 3), seg('NN', 1)],
       },
       {
         id: 'PA4', points: 30, note: 'any consec #s', nums: 'consec', winds: 'lit',
-        groupSets: [[NV(1, 0, 3), NV(1, 1, 3), NV(1, 2, 2), NV(1, 1, 3), NV(1, 0, 3)]],
-        display: [seg('111 222 33 222 111', 1)],
+        groupSets: [[NV(1, 0, 3), NV(1, 1, 3), NV(1, 2, 2), NV(2, 1, 3), NV(2, 0, 3)]],
+        display: [seg('111 222 33', 1), seg('222 111', 2)],
       },
       {
         id: 'PA5', points: 35, note: 'any like #', nums: 'like', winds: 'lit',
@@ -117,14 +122,14 @@ export const CATEGORIES = [
       },
       {
         id: 'PA6', points: 40, note: 'any consec #s', nums: 'consec', winds: 'lit',
-        groupSets: [[NV(1, 0, 2), NV(1, 1, 3), NV(1, 2, 4), NV(3, 1, 3), NV(1, 0, 2)]],
-        display: [seg('11 222 3333', 1), seg('222', 3), seg('11', 1)],
+        groupSets: [[NV(1, 0, 2), NV(1, 1, 3), NV(1, 2, 4), NV(3, 1, 3), NV(2, 0, 2)]],
+        display: [seg('11 222 3333', 1), seg('222', 3), seg('11', 2)],
       },
       {
         id: 'PA7', points: 40, concealed: true, note: 'these #s only, any dragons & winds',
         nums: 'lit', winds: 'var',
-        groupSets: [[N(1, 3, 2), N(2, 5, 2), N(3, 7, 2), N(2, 5, 2), N(1, 3, 2), D(1, 2), W('N', 2)]],
-        display: [seg('33', 1), seg('55', 2), seg('77', 3), seg('55', 2), seg('33 DD NN', 1)],
+        groupSets: [[N(1, 3, 2), N(2, 5, 2), N(3, 7, 2), N(3, 5, 2), N(2, 3, 2), D(1, 2), W('N', 2)]],
+        display: [seg('33', 1), seg('55', 2), seg('77', 3), seg('55', 3), seg('33', 2), seg('DD NN', 1)],
       },
       {
         id: 'PA8', points: 50, concealed: true, note: 'these #s only', nums: 'lit', winds: 'lit',
