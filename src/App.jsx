@@ -15,22 +15,24 @@ if (cleanedUrl !== window.location.href) {
   window.history.replaceState(window.history.state, '', cleanedUrl);
 }
 
-const BOT_NAMES = ['Elon', 'Jeff', 'Warren', 'Bill'];
-
 const GAMES = {
   property: {
     key: 'property', name: 'Property Deal', icon: '🏠',
     tagline: 'Collect three full property sets to win',
     players: '2–5 players', accent: '#15803d', tint: '#f0fdf4', border: '#86efac',
-    bots: true,
+    bots: true, botNames: ['Elon', 'Jeff', 'Warren', 'Bill'],
   },
   mahjong: {
     key: 'mahjong', name: 'Mah Jong', icon: '🀄',
     tagline: 'American mahjong — build a hand from the card',
     players: '2–4 players', accent: '#b45309', tint: '#fffbeb', border: '#fcd34d',
-    bots: false,
+    bots: true, botNames: ['Sum', 'Ting', 'Wong'],
   },
 };
+
+// Bots don't come through in the game state, so the rematch screen picks them
+// out by name.
+const BOT_NAMES = Object.values(GAMES).flatMap(g => g.botNames);
 
 export default function App() {
   const { socket, connected } = useSocket();
@@ -423,7 +425,7 @@ export default function App() {
         {/* Add Bot — host only, room not full */}
         {game.bots && playerId === roomInfo.hostId && roomInfo.players.length < maxPlayers && (() => {
           const addedBotNames = roomInfo.players.filter(p => p.isBot).map(p => p.name);
-          const available = BOT_NAMES.filter(n => !addedBotNames.includes(n));
+          const available = game.botNames.filter(n => !addedBotNames.includes(n));
           if (available.length === 0) return null;
           return (
             <div style={{ marginBottom: 20 }}>
