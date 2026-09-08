@@ -1,5 +1,5 @@
 // ============================================================
-// PROPERTY DEAL — Socket.IO Game Server
+// Socket.IO Game Server — Property Deal & Mah Jong
 // Run with: node server.js
 // ============================================================
 
@@ -15,6 +15,7 @@ import {
   resignGame, getCurrentPlayer, checkWin,
 } from './src/game/engine.js';
 import { FULL_DECK } from './src/game/cards.js';
+import * as mj from './src/game/mahjong/engine.js';
 import { BOT_NAMES, getBotMove, getBotResponse, getBotDiscards, getBotWildcardOverflowMove } from './src/game/botAI.js';
 
 // ============================================================
@@ -54,6 +55,72 @@ function generateRoomCode() {
   return Math.random().toString(36).substring(2, 7).toUpperCase();
 }
 
+// ── Game types ───────────────────────────────────────────────
+
+const GAME_TYPES = {
+  property: { label: 'Property Deal', min: 2, max: 5, bots: true  },
+  mahjong:  { label: 'Mah Jong',      min: 2, max: 4, bots: false },
+};
+
+function gameTypeOf(room) {
+  return GAME_TYPES[room.gameType] ? room.gameType : 'property';
+}
+
+function isMahjong(room) {
+  return gameTypeOf(room) === 'mahjong';
+}
+
+// Mah Jong hands, marked win conditions and the wall are all private; strip
+// everything the receiving player isn't entitled to see.
+function sanitizeMahjong(state, viewerId) {
+  return {
+    ...state,
+    players: Object.fromEntries(
+      Object.entries(state.players).map(([id, p]) => [id, {
+        ...p,
+        hand: (id === viewerId || state.revealed)
+          ? p.hand
+          : p.hand.map((_, i) => ({ id: `hidden-${id}-${i}`, kind: 'hidden' })),
+        markedHands:   id === viewerId ? p.markedHands   : [],
+        passSelection: id === viewerId ? p.passSelection : [],
+      }])
+    ),
+    wall: state.wall.length,
+  };
+}
+
+// Runs a Mah Jong engine call for the socket's player and pushes the result.
+function applyMahjong(socket, fn) {
+  const room = getRoomBySocket(socket.id);
+  if (!room?.gameState || !isMahjong(room)) return emitError(socket, 'No Mah Jong game in progress.');
+
+  const player = getPlayerBySocket(room, socket.id);
+  if (!player) return emitError(socket, 'Player not found.');
+
+  try {
+    const next = fn(room.gameState, player.id);
+    if (next) room.gameState = next;
+  } catch (err) {
+    return emitError(socket, err.message);
+  }
+
+  broadcastGameState(room);
+  emitMahjongGameOver(room);
+}
+
+function emitMahjongGameOver(room) {
+  const state = room.gameState;
+  if (state?.phase !== 'gameover' || room.gameOverSent) return;
+  room.gameOverSent = true;
+  const winner = room.players.find(p => p.id === state.winner);
+  io.to(room.roomCode).emit('gameOver', {
+    winnerId:   state.winner,
+    winnerName: winner?.name ?? state.playerNames?.[state.winner] ?? null,
+    reason:     state.endReason,
+    winningHands: state.winningHands ?? [],
+  });
+}
+
 function getRoomBySocket(socketId) {
   return Object.values(rooms).find(r =>
     r.players.some(p => p.socketId === socketId)
@@ -69,7 +136,13 @@ function broadcastGameState(room) {
     const socket = io.sockets.sockets.get(player.socketId);
     if (!socket) return;
 
-    const state     = room.gameState;
+    const state = room.gameState;
+
+    if (isMahjong(room)) {
+      socket.emit('gameState', sanitizeMahjong(state, player.id));
+      return;
+    }
+
     const sanitized = {
       ...state,
       players: Object.fromEntries(
@@ -132,6 +205,8 @@ function emitRoomUpdate(room) {
     roomCode:  room.roomCode,
     players:   room.players.map(p => ({ id: p.id, name: p.name, isBot: p.isBot ?? false })),
     hostId:    room.hostId,
+    gameType:  gameTypeOf(room),
+    maxPlayers: GAME_TYPES[gameTypeOf(room)].max,
     debugMode: room.debugMode ?? false,
     started:  room.started,
   });
@@ -334,9 +409,10 @@ io.on('connection', socket => {
   console.log(`Socket connected: ${socket.id}`);
 
   // ── Create Room ──────────────────────────────────────────
-  socket.on('createRoom', ({ playerName, debug }) => {
+  socket.on('createRoom', ({ playerName, debug, gameType }) => {
     if (!playerName?.trim()) return emitError(socket, 'Player name is required.');
 
+    const type = GAME_TYPES[gameType] ? gameType : 'property';
     const roomCode = generateRoomCode();
     const playerId = uuidv4();
 
@@ -344,7 +420,9 @@ io.on('connection', socket => {
       roomCode,
       hostId:    playerId,
       started:   false,
-      debugMode: !!debug,
+      gameType:  type,
+      // Debug card setup only exists for Property Deal.
+      debugMode: !!debug && type === 'property',
       gameState: null,
       players: [{ id: playerId, name: playerName.trim(), socketId: socket.id }],
     };
@@ -352,18 +430,26 @@ io.on('connection', socket => {
     socket.join(roomCode);
     socket.emit('joinedRoom', { playerId, roomCode });
     emitRoomUpdate(rooms[roomCode]);
-    console.log(`Room ${roomCode} created by ${playerName}`);
+    console.log(`Room ${roomCode} (${type}) created by ${playerName}`);
   });
 
   // ── Join Room ────────────────────────────────────────────
-  socket.on('joinRoom', ({ roomCode, playerName }) => {
+  socket.on('joinRoom', ({ roomCode, playerName, gameType }) => {
     const code = roomCode?.toUpperCase().trim();
     if (!playerName?.trim()) return emitError(socket, 'Player name is required.');
 
     const room = rooms[code];
     if (!room)                return emitError(socket, `Room ${code} not found.`);
     if (room.started)         return emitError(socket, 'Game already in progress.');
-    if (room.players.length >= 5) return emitError(socket, 'Room is full (max 5 players).');
+
+    const type = gameTypeOf(room);
+    const cfg  = GAME_TYPES[type];
+    if (gameType && GAME_TYPES[gameType] && gameType !== type) {
+      return emitError(socket, `Room ${code} is playing ${cfg.label}.`);
+    }
+    if (room.players.length >= cfg.max) {
+      return emitError(socket, `Room is full (max ${cfg.max} players).`);
+    }
 
     const playerId = uuidv4();
     room.players.push({ id: playerId, name: playerName.trim(), socketId: socket.id });
@@ -381,10 +467,32 @@ io.on('connection', socket => {
 
     const player = getPlayerBySocket(room, socket.id);
     if (player.id !== room.hostId) return emitError(socket, 'Only the host can start the game.');
-    if (room.players.length < 2)   return emitError(socket, 'Need at least 2 players to start.');
     if (room.started)               return emitError(socket, 'Game already started.');
 
-    const playerIds  = room.players.map(p => p.id);
+    const cfg = GAME_TYPES[gameTypeOf(room)];
+    if (room.players.length < cfg.min) return emitError(socket, `Need at least ${cfg.min} players to start.`);
+    if (room.players.length > cfg.max) return emitError(socket, `${cfg.label} supports up to ${cfg.max} players.`);
+
+    const playerIds = room.players.map(p => p.id);
+
+    if (isMahjong(room)) {
+      try {
+        room.gameState = mj.createGame(playerIds);
+      } catch (err) {
+        return emitError(socket, err.message);
+      }
+      room.started      = true;
+      room.gameOverSent = false;
+      playerIds.forEach(id => {
+        const p = room.players.find(pl => pl.id === id);
+        if (p) room.gameState.playerNames[id] = p.name;
+      });
+      broadcastGameState(room);
+      io.to(room.roomCode).emit('gameStarted');
+      console.log(`Mah Jong started in room ${room.roomCode}`);
+      return;
+    }
+
     room.gameState   = createGame(playerIds);
     room.started     = true;
 
@@ -542,6 +650,18 @@ io.on('connection', socket => {
     const player = getPlayerBySocket(room, socket.id);
     if (!player) return emitError(socket, 'Player not found.');
 
+    if (isMahjong(room)) {
+      try {
+        room.gameState = mj.resignGame(room.gameState, player.id);
+      } catch (err) {
+        return emitError(socket, err.message);
+      }
+      broadcastGameState(room);
+      if (room.gameState.phase === 'gameover') emitMahjongGameOver(room);
+      else io.to(room.roomCode).emit('playerResigned', { playerId: player.id, playerName: player.name });
+      return;
+    }
+
     try {
       room.gameState = resignGame(room.gameState, player.id);
 
@@ -570,6 +690,37 @@ io.on('connection', socket => {
     } catch (err) {
       emitError(socket, err.message);
     }
+  });
+
+  // ── Mah Jong ─────────────────────────────────────────────
+
+  socket.on('mj:confirmPass', ({ tileIds = [] } = {}) => {
+    applyMahjong(socket, (state, pid) =>
+      mj.confirmPass(mj.setPassSelection(state, pid, tileIds), pid));
+  });
+
+  socket.on('mj:draw', () => {
+    applyMahjong(socket, (state, pid) => mj.drawFromWall(state, pid));
+  });
+
+  socket.on('mj:claim', ({ size }) => {
+    applyMahjong(socket, (state, pid) => mj.claimDiscard(state, pid, size));
+  });
+
+  socket.on('mj:discard', ({ tileId }) => {
+    applyMahjong(socket, (state, pid) => mj.discardTile(state, pid, tileId));
+  });
+
+  socket.on('mj:useBlank', ({ blankTileId, targetTileId }) => {
+    applyMahjong(socket, (state, pid) => mj.useBlank(state, pid, blankTileId, targetTileId));
+  });
+
+  socket.on('mj:setMarked', ({ handIds = [] } = {}) => {
+    applyMahjong(socket, (state, pid) => mj.setMarkedHands(state, pid, handIds));
+  });
+
+  socket.on('mj:declare', () => {
+    applyMahjong(socket, (state, pid) => mj.declareMahjong(state, pid));
   });
 
   // ── Vote Rematch ─────────────────────────────────────────
@@ -606,11 +757,23 @@ io.on('connection', socket => {
     room.rematchHostId  = null;
 
     const playerIds  = room.players.map(p => p.id);
-    room.gameState   = createGame(playerIds);
+    room.gameOverSent = false;
+    try {
+      room.gameState = isMahjong(room) ? mj.createGame(playerIds) : createGame(playerIds);
+    } catch (err) {
+      return emitError(socket, err.message);
+    }
     playerIds.forEach(id => {
       const p = room.players.find(pl => pl.id === id);
       if (p) room.gameState.playerNames[id] = p.name;
     });
+
+    if (isMahjong(room)) {
+      broadcastGameState(room);
+      io.to(room.roomCode).emit('gameStarted');
+      console.log(`Mah Jong rematch started in room ${room.roomCode} with ${playerIds.length} players.`);
+      return;
+    }
 
     drawForTurn(room.gameState, room.gameState.playerOrder[0]);
     broadcastGameState(room);
@@ -627,7 +790,12 @@ io.on('connection', socket => {
     const player = getPlayerBySocket(room, socket.id);
     if (player.id !== room.hostId)  return emitError(socket, 'Only the host can add bots.');
     if (room.started)               return emitError(socket, 'Cannot add bots after the game starts.');
-    if (room.players.length >= 5)   return emitError(socket, 'Room is full (max 5 players).');
+    if (!GAME_TYPES[gameTypeOf(room)].bots) {
+      return emitError(socket, `${GAME_TYPES[gameTypeOf(room)].label} is real players only.`);
+    }
+    if (room.players.length >= GAME_TYPES[gameTypeOf(room)].max) {
+      return emitError(socket, 'Room is full.');
+    }
     if (!BOT_NAMES.includes(botName)) return emitError(socket, 'Unknown bot name.');
     if (room.players.some(p => p.name === botName && p.isBot)) {
       return emitError(socket, `${botName} is already in the room.`);
@@ -673,20 +841,23 @@ io.on('connection', socket => {
     emitRoomUpdate(room);
 
     if (room.gameState) {
-      const state     = room.gameState;
-      const sanitized = {
-        ...state,
-        players: Object.fromEntries(
-          Object.entries(state.players).map(([id, p]) => [id, {
-            ...p,
-            hand: id === player.id
-              ? p.hand
-              : p.hand.map(() => ({ id: 'hidden', type: 'hidden' })),
-          }])
-        ),
-        deck: state.deck.length,
-      };
-      socket.emit('gameState', sanitized);
+      const state = room.gameState;
+      if (isMahjong(room)) {
+        socket.emit('gameState', sanitizeMahjong(state, player.id));
+      } else {
+        socket.emit('gameState', {
+          ...state,
+          players: Object.fromEntries(
+            Object.entries(state.players).map(([id, p]) => [id, {
+              ...p,
+              hand: id === player.id
+                ? p.hand
+                : p.hand.map(() => ({ id: 'hidden', type: 'hidden' })),
+            }])
+          ),
+          deck: state.deck.length,
+        });
+      }
     }
 
     console.log(`${player.name} rejoined room ${code}`);
@@ -724,5 +895,5 @@ io.on('connection', socket => {
 // ============================================================
 
 http.listen(PORT, () => {
-  console.log(`Property Deal server running on port ${PORT}`);
+  console.log(`Game server running on port ${PORT}`);
 });

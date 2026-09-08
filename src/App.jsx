@@ -2,6 +2,8 @@ import { useSocket }                        from './hooks/useSocket';
 import { useGameState, loadSession, clearSession } from './hooks/useGameState';
 import { useState }                        from 'react';
 import GameBoard                           from './components/GameBoard.jsx';
+import MahjongBoard                       from './components/mahjong/MahjongBoard.jsx';
+import MahjongReveal                      from './components/mahjong/MahjongReveal.jsx';
 import DebugSetup                          from './components/DebugSetup.jsx';
 import Settings                            from './components/Settings.jsx';
 import { cleanUpdateUrl }                  from './hooks/useAppVersion.js';
@@ -15,6 +17,21 @@ if (cleanedUrl !== window.location.href) {
 
 const BOT_NAMES = ['Elon', 'Jeff', 'Warren', 'Bill'];
 
+const GAMES = {
+  property: {
+    key: 'property', name: 'Property Deal', icon: '🏠',
+    tagline: 'Collect three full property sets to win',
+    players: '2–5 players', accent: '#15803d', tint: '#f0fdf4', border: '#86efac',
+    bots: true,
+  },
+  mahjong: {
+    key: 'mahjong', name: 'Mah Jong', icon: '🀄',
+    tagline: 'American mahjong — build a hand from the card',
+    players: '2–4 players', accent: '#b45309', tint: '#fffbeb', border: '#fcd34d',
+    bots: false,
+  },
+};
+
 export default function App() {
   const { socket, connected } = useSocket();
   const {
@@ -23,6 +40,8 @@ export default function App() {
 
   const [nameInput,      setNameInput]      = useState('');
   const [codeInput,      setCodeInput]      = useState('');
+  const [step,           setStep]           = useState('name');  // name → game → room
+  const [gameChoice,     setGameChoice]     = useState(null);
   const [showDebugSetup, setShowDebugSetup] = useState(false);
   const [showSettings,   setShowSettings]   = useState(false);
 
@@ -108,14 +127,29 @@ export default function App() {
         }}>
           {/* Winner */}
           <div style={{ textAlign: 'center', marginBottom: 24 }}>
-            <div style={{ fontSize: 56, marginBottom: 8 }}>🏆</div>
+            <div style={{ fontSize: 56, marginBottom: 8 }}>
+              {gameOver.reason === 'wall' ? '🀫' : '🏆'}
+            </div>
             <h1 style={{ fontSize: 24, fontWeight: 800, color: '#111827', marginBottom: 4 }}>
-              {gameOver.winnerName} wins!
+              {gameOver.reason === 'wall' || !gameOver.winnerName
+                ? 'Wall game — nobody won'
+                : gameOver.reason === 'mahjong'
+                  ? `${gameOver.winnerName} called Mah Jong!`
+                  : `${gameOver.winnerName} wins!`}
             </h1>
             <p style={{ fontSize: 13, color: '#6b7280' }}>
-              {gameOver.reason === 'resignation' ? 'Game ended by resignation' : 'Great game everyone!'}
+              {gameOver.reason === 'resignation' ? 'Game ended by resignation'
+                : gameOver.reason === 'wall'     ? 'The wall ran out before anyone completed a hand'
+                : 'Great game everyone!'}
             </p>
           </div>
+
+          <MahjongReveal
+            gameState={gameState}
+            playerId={playerId}
+            playerNames={playerNames}
+            winningHands={gameOver.winningHands ?? []}
+          />
 
           {/* Rematch section */}
           <div style={{ borderTop: '1px solid #e5e7eb', paddingTop: 20, marginBottom: 20 }}>
@@ -228,6 +262,18 @@ export default function App() {
   );
 
   // ── In Game ─────────────────────────────────────────────
+  if (gameState?.gameType === 'mahjong') return (
+    <MahjongBoard
+      gameState={gameState}
+      playerId={playerId}
+      playerNames={Object.fromEntries(
+        roomInfo?.players?.map(p => [p.id, p.name]) ?? []
+      )}
+      actions={actions}
+      resignedPlayer={resignedPlayer}
+    />
+  );
+
   if (gameState) return (
     <GameBoard
       gameState={gameState}
@@ -241,7 +287,12 @@ export default function App() {
   );
 
   // ── Lobby ────────────────────────────────────────────────
-  if (roomInfo) return (
+  if (roomInfo) {
+    const game       = GAMES[roomInfo.gameType] ?? GAMES.property;
+    const maxPlayers = roomInfo.maxPlayers ?? (roomInfo.gameType === 'mahjong' ? 4 : 5);
+    const enough     = roomInfo.players.length >= 2;
+    const tooMany    = roomInfo.players.length > maxPlayers;
+    return (
     <div style={{
       height: '100%',
       background: '#f3f4f6',
@@ -260,7 +311,10 @@ export default function App() {
         boxShadow: '0 4px 24px rgba(0,0,0,0.08)',
       }}>
         <div style={{ textAlign: 'center', marginBottom: 24 }}>
-          <div style={{ fontSize: 36, marginBottom: 8 }}>🏠</div>
+          <div style={{ fontSize: 36, marginBottom: 4 }}>{game.icon}</div>
+          <div style={{ fontSize: 13, fontWeight: 700, color: game.accent, marginBottom: 8 }}>
+            {game.name}
+          </div>
           <h1 style={{ fontSize: 22, fontWeight: 800, color: '#111827', marginBottom: 4 }}>
             Room Code:
           </h1>
@@ -284,7 +338,7 @@ export default function App() {
 
         <div style={{ marginBottom: 20 }}>
           <div style={{ fontSize: 12, color: '#9ca3af', fontWeight: 600, marginBottom: 10, letterSpacing: '0.06em' }}>
-            PLAYERS ({roomInfo.players.length}/5)
+            PLAYERS ({roomInfo.players.length}/{maxPlayers})
           </div>
           {roomInfo.players.map(p => (
             <div key={p.id} style={{
@@ -336,7 +390,7 @@ export default function App() {
         </div>
 
         {/* Add Bot — host only, room not full */}
-        {playerId === roomInfo.hostId && roomInfo.players.length < 5 && (() => {
+        {game.bots && playerId === roomInfo.hostId && roomInfo.players.length < maxPlayers && (() => {
           const addedBotNames = roomInfo.players.filter(p => p.isBot).map(p => p.name);
           const available = BOT_NAMES.filter(n => !addedBotNames.includes(n));
           if (available.length === 0) return null;
@@ -389,14 +443,16 @@ export default function App() {
           ) : (
             <button
               onClick={actions.startGame}
-              disabled={roomInfo.players.length < 2}
+              disabled={!enough || tooMany}
               style={{
-                width: '100%', background: roomInfo.players.length < 2 ? '#d1d5db' : '#15803d',
+                width: '100%', background: !enough || tooMany ? '#d1d5db' : game.accent,
                 color: '#fff', border: 'none', borderRadius: 14, padding: '18px',
-                fontSize: 17, fontWeight: 700, cursor: roomInfo.players.length < 2 ? 'not-allowed' : 'pointer',
+                fontSize: 17, fontWeight: 700, cursor: !enough || tooMany ? 'not-allowed' : 'pointer',
               }}
             >
-              {roomInfo.players.length < 2 ? 'Waiting for players...' : 'Start Game 🚀'}
+              {tooMany ? `Too many players for ${game.name}`
+                : !enough ? 'Waiting for players...'
+                : 'Start Game 🚀'}
             </button>
           )
         ) : (
@@ -406,10 +462,14 @@ export default function App() {
         )}
       </div>
     </div>
-  );
+    );
+  }
 
-  // ── Home Screen ──────────────────────────────────────────
-  return (
+  // ── Home Screen: name → game → room ──────────────────────
+  const selectedGame = GAMES[gameChoice] ?? null;
+  const nameReady    = connected && nameInput.trim().length > 0;
+
+  const shell = (children) => (
     <div style={{
       height: '100%',
       background: '#f3f4f6',
@@ -418,6 +478,7 @@ export default function App() {
       justifyContent: 'center',
       fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif',
       padding: 24,
+      overflowY: 'auto',
     }}>
       <div style={{
         position: 'relative',
@@ -445,116 +506,219 @@ export default function App() {
           </svg>
         </button>
 
-        <div style={{ textAlign: 'center', marginBottom: 32 }}>
-          <div style={{ fontSize: 52, marginBottom: 8 }}>🏠</div>
-          <h1 style={{ fontSize: 28, fontWeight: 800, color: '#111827', marginBottom: 4 }}>
-            Property Deal
-          </h1>
-          <p style={{ fontSize: 14, color: '#9ca3af' }}>Multiplayer card game</p>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 8 }}>
-            <div style={{
-              width: 8, height: 8, borderRadius: '50%',
-              background: connected ? '#16a34a' : '#dc2626',
-            }} />
-            <span style={{ fontSize: 12, color: '#9ca3af' }}>
-              {connected ? 'Connected' : 'Connecting...'}
-            </span>
-          </div>
-        </div>
-
-        <div style={{ marginBottom: 16 }}>
-          <label style={{ fontSize: 13, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 6 }}>
-            Your Name
-          </label>
-          <input
-            style={{
-              width: '100%', background: '#f9fafb',
-              border: '2px solid #e5e7eb', borderRadius: 12,
-              padding: '14px 16px', fontSize: 16, outline: 'none',
-              color: '#111827',
-            }}
-            placeholder="Enter your name"
-            value={nameInput}
-            onChange={e => setNameInput(e.target.value)}
-            onFocus={e => e.target.style.borderColor = '#3b82f6'}
-            onBlur={e => e.target.style.borderColor = '#e5e7eb'}
-          />
-        </div>
-
-        {error && (
-          <div style={{ background: '#fef2f2', color: '#dc2626', borderRadius: 10, padding: '10px 14px', fontSize: 13, marginBottom: 16 }}>
-            {error}
-          </div>
-        )}
-
-        <button
-          onClick={() => actions.createRoom(nameInput)}
-          disabled={!connected || !nameInput.trim()}
-          style={{
-            width: '100%', background: !connected || !nameInput.trim() ? '#d1d5db' : '#15803d',
-            color: '#fff', border: 'none', borderRadius: 14, padding: '18px',
-            fontSize: 17, fontWeight: 700,
-            cursor: !connected || !nameInput.trim() ? 'not-allowed' : 'pointer',
-            marginBottom: 12,
-          }}
-        >
-          Create Game
-        </button>
-
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
-          <div style={{ flex: 1, height: 1, background: '#e5e7eb' }} />
-          <span style={{ fontSize: 12, color: '#9ca3af' }}>or join existing</span>
-          <div style={{ flex: 1, height: 1, background: '#e5e7eb' }} />
-        </div>
-
-        <div style={{ display: 'flex', gap: 8 }}>
-          <input
-            style={{
-              flex: 1, background: '#f9fafb',
-              border: '2px solid #e5e7eb', borderRadius: 12,
-              padding: '14px 16px', fontSize: 16, outline: 'none',
-              color: '#111827', textTransform: 'uppercase', letterSpacing: '0.1em',
-            }}
-            placeholder="Room code"
-            value={codeInput}
-            onChange={e => setCodeInput(e.target.value.toUpperCase())}
-            onFocus={e => e.target.style.borderColor = '#3b82f6'}
-            onBlur={e => e.target.style.borderColor = '#e5e7eb'}
-            maxLength={5}
-          />
-          <button
-            onClick={() => actions.joinRoom(codeInput, nameInput)}
-            disabled={!connected || !nameInput.trim() || !codeInput.trim()}
-            style={{
-              background: !connected || !nameInput.trim() || !codeInput.trim() ? '#d1d5db' : '#1d4ed8',
-              color: '#fff', border: 'none', borderRadius: 12,
-              padding: '14px 20px', fontSize: 16, fontWeight: 700,
-              cursor: !connected || !nameInput.trim() || !codeInput.trim() ? 'not-allowed' : 'pointer',
-            }}
-          >
-            Join
-          </button>
-        </div>
-
-        {debugUnlocked && (
-          <div style={{ textAlign: 'center', marginTop: 20 }}>
-            <button
-              onClick={() => { if (nameInput.trim()) actions.createDebugRoom(nameInput); }}
-              disabled={!connected || !nameInput.trim()}
-              style={{
-                background: 'none', border: 'none', color: '#d1d5db',
-                fontSize: 11, cursor: !connected || !nameInput.trim() ? 'default' : 'pointer',
-                padding: '4px 8px', borderRadius: 4,
-              }}
-              title="Open a debug room with manual card setup"
-            >
-              🔧 debug mode
-            </button>
-          </div>
-        )}
+        {children}
       </div>
 
       {showSettings && <Settings onClose={() => setShowSettings(false)} />}
     </div>
+  );
+
+  const errorBox = error && (
+    <div style={{ background: '#fef2f2', color: '#dc2626', borderRadius: 10, padding: '10px 14px', fontSize: 13, marginBottom: 16 }}>
+      {error}
+    </div>
+  );
+
+  const backLink = (label, onClick) => (
+    <button
+      onClick={onClick}
+      style={{
+        background: 'none', border: 'none', color: '#6b7280',
+        fontSize: 13, cursor: 'pointer', padding: '10px 0', marginTop: 4,
+        width: '100%', textAlign: 'center',
+      }}
+    >
+      ← {label}
+    </button>
+  );
+
+  // Step 1 — who are you?
+  if (step === 'name') return shell(
+    <>
+      <div style={{ textAlign: 'center', marginBottom: 32 }}>
+        <div style={{ fontSize: 52, marginBottom: 8 }}>🎲</div>
+        <h1 style={{ fontSize: 28, fontWeight: 800, color: '#111827', marginBottom: 4 }}>
+          Game Night
+        </h1>
+        <p style={{ fontSize: 14, color: '#9ca3af' }}>Multiplayer card &amp; tile games</p>
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, marginTop: 8 }}>
+          <div style={{
+            width: 8, height: 8, borderRadius: '50%',
+            background: connected ? '#16a34a' : '#dc2626',
+          }} />
+          <span style={{ fontSize: 12, color: '#9ca3af' }}>
+            {connected ? 'Connected' : 'Connecting...'}
+          </span>
+        </div>
+      </div>
+
+      <div style={{ marginBottom: 16 }}>
+        <label style={{ fontSize: 13, fontWeight: 600, color: '#374151', display: 'block', marginBottom: 6 }}>
+          Your Name
+        </label>
+        <input
+          style={{
+            width: '100%', background: '#f9fafb',
+            border: '2px solid #e5e7eb', borderRadius: 12,
+            padding: '14px 16px', fontSize: 16, outline: 'none',
+            color: '#111827',
+          }}
+          placeholder="Enter your name"
+          value={nameInput}
+          onChange={e => setNameInput(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter' && nameReady) setStep('game'); }}
+          onFocus={e => e.target.style.borderColor = '#3b82f6'}
+          onBlur={e => e.target.style.borderColor = '#e5e7eb'}
+        />
+      </div>
+
+      {errorBox}
+
+      <button
+        onClick={() => setStep('game')}
+        disabled={!nameReady}
+        style={{
+          width: '100%', background: nameReady ? '#1d4ed8' : '#d1d5db',
+          color: '#fff', border: 'none', borderRadius: 14, padding: '18px',
+          fontSize: 17, fontWeight: 700,
+          cursor: nameReady ? 'pointer' : 'not-allowed',
+        }}
+      >
+        Continue
+      </button>
+    </>
+  );
+
+  // Step 2 — which game?
+  if (step === 'game') return shell(
+    <>
+      <div style={{ textAlign: 'center', marginBottom: 28 }}>
+        <h1 style={{ fontSize: 24, fontWeight: 800, color: '#111827', marginBottom: 4 }}>
+          Pick a game
+        </h1>
+        <p style={{ fontSize: 14, color: '#9ca3af' }}>
+          Hi {nameInput.trim()} — what are we playing?
+        </p>
+      </div>
+
+      {Object.values(GAMES).map(g => (
+        <button
+          key={g.key}
+          onClick={() => { setGameChoice(g.key); setStep('room'); }}
+          style={{
+            width: '100%', textAlign: 'left', cursor: 'pointer',
+            display: 'flex', alignItems: 'center', gap: 14,
+            background: g.tint, border: `2px solid ${g.border}`,
+            borderRadius: 16, padding: '18px 16px', marginBottom: 12,
+          }}
+        >
+          <span style={{ fontSize: 34, lineHeight: 1, flexShrink: 0 }}>{g.icon}</span>
+          <span style={{ flex: 1, minWidth: 0 }}>
+            <span style={{ display: 'block', fontSize: 17, fontWeight: 800, color: '#111827' }}>
+              {g.name}
+            </span>
+            <span style={{ display: 'block', fontSize: 12.5, color: '#4b5563', marginTop: 2 }}>
+              {g.tagline}
+            </span>
+            <span style={{ display: 'block', fontSize: 11.5, color: g.accent, fontWeight: 700, marginTop: 4 }}>
+              {g.players}{g.bots ? ' · bots available' : ' · real players only'}
+            </span>
+          </span>
+          <span style={{ fontSize: 20, color: g.accent, flexShrink: 0 }}>›</span>
+        </button>
+      ))}
+
+      {errorBox}
+      {backLink('Change name', () => setStep('name'))}
+    </>
+  );
+
+  // Step 3 — create or join a room for the chosen game
+  const joinReady = connected && nameInput.trim() && codeInput.trim();
+
+  return shell(
+    <>
+      <div style={{ textAlign: 'center', marginBottom: 28 }}>
+        <div style={{ fontSize: 46, marginBottom: 6 }}>{selectedGame.icon}</div>
+        <h1 style={{ fontSize: 24, fontWeight: 800, color: '#111827', marginBottom: 2 }}>
+          {selectedGame.name}
+        </h1>
+        <p style={{ fontSize: 13, color: '#9ca3af' }}>
+          {selectedGame.players} · playing as {nameInput.trim()}
+        </p>
+      </div>
+
+      {errorBox}
+
+      <button
+        onClick={() => actions.createRoom(nameInput, selectedGame.key)}
+        disabled={!nameReady}
+        style={{
+          width: '100%', background: nameReady ? selectedGame.accent : '#d1d5db',
+          color: '#fff', border: 'none', borderRadius: 14, padding: '18px',
+          fontSize: 17, fontWeight: 700,
+          cursor: nameReady ? 'pointer' : 'not-allowed',
+          marginBottom: 12,
+        }}
+      >
+        Create Game
+      </button>
+
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
+        <div style={{ flex: 1, height: 1, background: '#e5e7eb' }} />
+        <span style={{ fontSize: 12, color: '#9ca3af' }}>or join existing</span>
+        <div style={{ flex: 1, height: 1, background: '#e5e7eb' }} />
+      </div>
+
+      <div style={{ display: 'flex', gap: 8 }}>
+        <input
+          style={{
+            flex: 1, background: '#f9fafb',
+            border: '2px solid #e5e7eb', borderRadius: 12,
+            padding: '14px 16px', fontSize: 16, outline: 'none',
+            color: '#111827', textTransform: 'uppercase', letterSpacing: '0.1em',
+            minWidth: 0,
+          }}
+          placeholder="Room code"
+          value={codeInput}
+          onChange={e => setCodeInput(e.target.value.toUpperCase())}
+          onKeyDown={e => { if (e.key === 'Enter' && joinReady) actions.joinRoom(codeInput, nameInput, selectedGame.key); }}
+          onFocus={e => e.target.style.borderColor = '#3b82f6'}
+          onBlur={e => e.target.style.borderColor = '#e5e7eb'}
+          maxLength={5}
+        />
+        <button
+          onClick={() => actions.joinRoom(codeInput, nameInput, selectedGame.key)}
+          disabled={!joinReady}
+          style={{
+            background: joinReady ? '#1d4ed8' : '#d1d5db',
+            color: '#fff', border: 'none', borderRadius: 12,
+            padding: '14px 20px', fontSize: 16, fontWeight: 700,
+            cursor: joinReady ? 'pointer' : 'not-allowed',
+          }}
+        >
+          Join
+        </button>
+      </div>
+
+      {debugUnlocked && selectedGame.key === 'property' && (
+        <div style={{ textAlign: 'center', marginTop: 20 }}>
+          <button
+            onClick={() => { if (nameInput.trim()) actions.createDebugRoom(nameInput); }}
+            disabled={!nameReady}
+            style={{
+              background: 'none', border: 'none', color: '#d1d5db',
+              fontSize: 11, cursor: nameReady ? 'pointer' : 'default',
+              padding: '4px 8px', borderRadius: 4,
+            }}
+            title="Open a debug room with manual card setup"
+          >
+            🔧 debug mode
+          </button>
+        </div>
+      )}
+
+      {backLink('Pick a different game', () => setStep('game'))}
+    </>
   );
 }

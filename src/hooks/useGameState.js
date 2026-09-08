@@ -2,8 +2,8 @@ import { useState, useEffect, useRef } from 'react';
 
 const SESSION_KEY = 'pd_session';
 
-function saveSession(playerId, roomCode, playerName) {
-  localStorage.setItem(SESSION_KEY, JSON.stringify({ playerId, roomCode, playerName }));
+function saveSession(playerId, roomCode, playerName, gameType) {
+  localStorage.setItem(SESSION_KEY, JSON.stringify({ playerId, roomCode, playerName, gameType }));
 }
 export function clearSession() {
   localStorage.removeItem(SESSION_KEY);
@@ -24,13 +24,17 @@ export function useGameState(socket) {
   const [rematchStatus,  setRematchStatus]  = useState(null);
 
   const pendingNameRef = useRef('');
+  const pendingGameRef = useRef(null);
 
   useEffect(() => {
     if (!socket) return;
 
     function tryRejoin() {
       const saved = loadSession();
-      if (saved) socket.emit('rejoinRoom', saved);
+      if (saved) {
+        pendingGameRef.current = saved.gameType ?? pendingGameRef.current;
+        socket.emit('rejoinRoom', { roomCode: saved.roomCode, playerId: saved.playerId });
+      }
     }
 
     socket.on('connect', tryRejoin);
@@ -41,7 +45,7 @@ export function useGameState(socket) {
       setPlayerId(playerId);
       setRoomCode(roomCode);
       setError(null);
-      saveSession(playerId, roomCode, pendingNameRef.current);
+      saveSession(playerId, roomCode, pendingNameRef.current, pendingGameRef.current);
       setHasSession(true);
     });
 
@@ -50,7 +54,10 @@ export function useGameState(socket) {
       setHasSession(false);
     });
 
-    socket.on('roomUpdate',  info  => setRoomInfo(info));
+    socket.on('roomUpdate', info => {
+      setRoomInfo(info);
+      if (info?.gameType) pendingGameRef.current = info.gameType;
+    });
     socket.on('gameStarted', ()    => setError(null));
 
     socket.on('gameState', state => {
@@ -90,17 +97,20 @@ export function useGameState(socket) {
   }, [socket]);
 
   const actions = {
-    createRoom: (playerName) => {
+    createRoom: (playerName, gameType = 'property') => {
       pendingNameRef.current = playerName;
-      socket.emit('createRoom', { playerName });
+      pendingGameRef.current = gameType;
+      socket.emit('createRoom', { playerName, gameType });
     },
     createDebugRoom: (playerName) => {
       pendingNameRef.current = playerName;
-      socket.emit('createRoom', { playerName, debug: true });
+      pendingGameRef.current = 'property';
+      socket.emit('createRoom', { playerName, gameType: 'property', debug: true });
     },
-    joinRoom: (roomCode, playerName) => {
+    joinRoom: (roomCode, playerName, gameType) => {
       pendingNameRef.current = playerName;
-      socket.emit('joinRoom', { roomCode, playerName });
+      pendingGameRef.current = gameType ?? null;
+      socket.emit('joinRoom', { roomCode, playerName, gameType });
     },
     startGame:       ()                          => socket.emit('startGame'),
     debugStartGame:  (hands)                     => socket.emit('debugStartGame', { hands }),
@@ -113,6 +123,15 @@ export function useGameState(socket) {
     resignGame:      ()                          => socket.emit('resignGame'),
     voteRematch:     ()                          => socket.emit('voteRematch'),
     beginRematch:    ()                          => socket.emit('beginRematch'),
+
+    // Mah Jong
+    mjConfirmPass:   (tileIds)                   => socket.emit('mj:confirmPass', { tileIds }),
+    mjDraw:          ()                          => socket.emit('mj:draw'),
+    mjClaim:         (size)                      => socket.emit('mj:claim',    { size }),
+    mjDiscard:       (tileId)                    => socket.emit('mj:discard',  { tileId }),
+    mjUseBlank:      (blankTileId, targetTileId) => socket.emit('mj:useBlank', { blankTileId, targetTileId }),
+    mjSetMarked:     (handIds)                   => socket.emit('mj:setMarked', { handIds }),
+    mjDeclare:       ()                          => socket.emit('mj:declare'),
   };
 
   return { roomCode, playerId, roomInfo, gameState, gameOver, error, actions, resignedPlayer, hasSession, rematchStatus };
