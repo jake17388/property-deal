@@ -54,6 +54,15 @@ export default function MahjongBoard({ gameState, playerId, playerNames, actions
     return claimOptions(claimable.tile, me?.hand ?? [], marked);
   }, [isMyTurn, inCharleston, gameState.turnStage, claimable, me?.hand, marked]);
 
+  // Tiles that arrived since your last discard, and where from — a drawn tile
+  // gets sorted into the middle of the rack, so it needs pointing out.
+  const newIds = useMemo(() => new Set(me?.justReceived ?? []), [me?.justReceived]);
+  const newLabel = {
+    wall: 'just drawn',
+    pile: 'from the pile',
+    pass: 'just received',
+  }[me?.justReceivedFrom] ?? null;
+
   const myBlank = me?.hand?.find(t => t.kind === TILE_KIND.BLANK);
   const canUseBlank = !inCharleston && gameState.phase === 'playing'
     && gameState.turnStage === 'draw' && !!myBlank
@@ -357,11 +366,27 @@ export default function MahjongBoard({ gameState, playerId, playerNames, actions
           <span style={{ fontSize: 11, fontWeight: 700, color: '#9ca3af', letterSpacing: '0.06em' }}>
             YOUR RACK ({me?.hand?.length ?? 0})
           </span>
-          {inCharleston && !me?.passReady && (
-            <span style={{ fontSize: 11, color: '#6b7280' }}>
-              {selected.length}/{PASS_SIZE} selected
-            </span>
-          )}
+          <span style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {newIds.size > 0 && newLabel && (
+              <span style={{
+                display: 'inline-flex', alignItems: 'center', gap: 5,
+                fontSize: 11, fontWeight: 700, color: '#1d4ed8',
+                background: '#eff6ff', border: '1px solid #bfdbfe',
+                borderRadius: 20, padding: '2px 9px',
+              }}>
+                <span style={{
+                  width: 7, height: 7, borderRadius: '50%',
+                  background: '#fff', border: '1.5px solid #2563eb',
+                }} />
+                {newIds.size > 1 ? `${newIds.size} ${newLabel}` : newLabel}
+              </span>
+            )}
+            {inCharleston && !me?.passReady && (
+              <span style={{ fontSize: 11, color: '#6b7280' }}>
+                {selected.length}/{PASS_SIZE} selected
+              </span>
+            )}
+          </span>
         </div>
         <div style={{
           display: 'flex', gap: 4, flexWrap: 'wrap',
@@ -373,6 +398,7 @@ export default function MahjongBoard({ gameState, playerId, playerNames, actions
               tile={t}
               small
               selected={selected.includes(t.id)}
+              isNew={newIds.has(t.id)}
               onClick={toggleTile}
             />
           ))}

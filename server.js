@@ -83,6 +83,7 @@ function sanitizeMahjong(state, viewerId) {
           : p.hand.map((_, i) => ({ id: `hidden-${id}-${i}`, kind: 'hidden' })),
         markedHands:   id === viewerId ? p.markedHands   : [],
         passSelection: id === viewerId ? p.passSelection : [],
+        justReceived:  id === viewerId ? p.justReceived  : [],
       }])
     ),
     wall: state.wall.length,

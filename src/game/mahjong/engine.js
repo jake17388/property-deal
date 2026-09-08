@@ -61,6 +61,10 @@ export function createGame(playerIds) {
       markedHands: [],
       passSelection: [],
       passReady:   false,
+      // Tiles that just arrived, so the rack can point them out — sorting drops
+      // a new tile into the middle of the rack where it's impossible to spot.
+      justReceived:     [],
+      justReceivedFrom: null,   // 'wall' | 'pile' | 'pass'
     };
   }
   // The dealer opens the game, so they take the extra 14th tile.
@@ -143,6 +147,8 @@ function resolvePass(state) {
     const toId = order[passTargetIndex(i, round, n)];
     const dest = state.players[toId];
     dest.hand  = sortTiles([...dest.hand, ...outgoing[id]]);
+    dest.justReceived     = outgoing[id].map(t => t.id);
+    dest.justReceivedFrom = 'pass';
   });
 
   order.forEach(id => {
@@ -201,6 +207,8 @@ export function drawFromWall(prev, playerId) {
   const tile = state.wall.shift();
   const p    = state.players[playerId];
   p.hand     = sortTiles([...p.hand, tile]);
+  p.justReceived     = [tile.id];
+  p.justReceivedFrom = 'wall';
   state.claimable = null;
   state.turnStage = 'discard';
   log(state, `${nameOf(state, playerId)} drew a tile.`);
@@ -257,6 +265,8 @@ export function discardTile(prev, playerId, tileId) {
   if (idx === -1) throw new Error('That tile is not in your hand.');
 
   const [tile] = p.hand.splice(idx, 1);
+  p.justReceived     = [];
+  p.justReceivedFrom = null;
   state.discards.push(tile);
   state.claimable = { tile, byId: playerId };
 
@@ -293,6 +303,8 @@ export function useBlank(prev, playerId, blankTileId, targetTileId) {
   const taken   = state.discards[dIdx];
   state.discards[dIdx] = blank;            // the blank takes its place on the pile
   p.hand = sortTiles([...p.hand, taken]);
+  p.justReceived     = [taken.id];
+  p.justReceivedFrom = 'pile';
 
   // Play resumes with whoever sits after the player who used the blank.
   const from = state.playerOrder.indexOf(playerId);

@@ -32,7 +32,7 @@ function visuals(tile) {
   }
 }
 
-export default function Tile({ tile, onClick, selected, small, faceDown, dimmed, highlighted, badge }) {
+export default function Tile({ tile, onClick, selected, small, faceDown, dimmed, highlighted, badge, isNew }) {
   const w = small ? 40 : 58;
   const h = small ? 56 : 82;
 
@@ -48,6 +48,12 @@ export default function Tile({ tile, onClick, selected, small, faceDown, dimmed,
 
   const v = visuals(tile);
 
+  // A blue ring for a tile that just arrived — drawn outside the box so it
+  // doesn't shift the rack, and a different colour from the amber selection
+  // border so the two can show at once on the tile you drew and are discarding.
+  const lift = selected ? '0 8px 20px rgba(0,0,0,0.2)' : '0 1px 3px rgba(0,0,0,0.1)';
+  const ring = isNew ? `0 0 0 3px #2563eb, 0 0 0 5px rgba(37,99,235,0.25), ${lift}` : lift;
+
   return (
     <div
       onClick={() => onClick?.(tile)}
@@ -61,7 +67,7 @@ export default function Tile({ tile, onClick, selected, small, faceDown, dimmed,
         flexShrink: 0,
         opacity: dimmed ? 0.35 : 1,
         transform: selected ? 'translateY(-8px)' : undefined,
-        boxShadow: selected ? '0 8px 20px rgba(0,0,0,0.2)' : '0 1px 3px rgba(0,0,0,0.1)',
+        boxShadow: ring,
         transition: 'transform 0.15s, box-shadow 0.15s, opacity 0.15s',
         userSelect: 'none', position: 'relative',
       }}
@@ -69,12 +75,22 @@ export default function Tile({ tile, onClick, selected, small, faceDown, dimmed,
       <div style={{
         background: v.headerBg, height: small ? 14 : 18,
         display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
+        position: 'relative',
+        // keep the suit label clear of the new-tile dot
+        paddingRight: isNew ? 11 : 0,
       }}>
         <span style={{
           fontSize: small ? 6 : 7, color: '#fff', fontWeight: 700,
           letterSpacing: '0.05em', textTransform: 'uppercase',
           textShadow: '0 1px 2px rgba(0,0,0,0.4)',
         }}>{v.label}</span>
+        {isNew && (
+          <div style={{
+            position: 'absolute', top: 3, right: 3,
+            width: 7, height: 7, borderRadius: '50%',
+            background: '#fff', border: '1.5px solid #2563eb',
+          }} />
+        )}
       </div>
 
       <div style={{
