@@ -53,14 +53,20 @@ function buildVariant(groups, suitBySlot, base, windByLetter) {
   const byKey = new Map();   // key -> { key, count, jokersOk }
   const free  = new Map();   // number -> { num, count, jokersOk }
 
-  const add = (map, id, patch, count, printedCount) => {
+  const add = (map, id, patch, count, groupSize) => {
     const cur = map.get(id) ?? { ...patch, count: 0, jokersOk: true };
     cur.count += count;
     // A merged requirement only takes jokers if every printed group that fed
-    // it was a group of three or more — jokers can't stand in for a pair.
-    cur.jokersOk = cur.jokersOk && printedCount >= 3;
+    // it was a group of three or more — jokers can't stand in for a single or
+    // a pair.
+    cur.jokersOk = cur.jokersOk && groupSize >= 3;
     map.set(id, cur);
   };
+
+  // A NEWS section is one printed group four tiles wide, so jokers fill it
+  // like any other group of three or more — even though its four tiles are
+  // all different and each is printed on its own.
+  const news = new Set(newsWindGroups(groups));
 
   for (const g of groups) {
     const c = g.c ?? 1;
@@ -77,7 +83,7 @@ function buildVariant(groups, suitBySlot, base, windByLetter) {
       add(byKey, dragonKey(dragon), { key: dragonKey(dragon) }, c, c);
     } else if (g.t === 'w') {
       const wind = windByLetter[g.w] ?? g.w;
-      add(byKey, windKey(wind), { key: windKey(wind) }, c, c);
+      add(byKey, windKey(wind), { key: windKey(wind) }, c, news.has(g) ? WINDS.length : c);
     } else if (g.t === 'f') {
       add(byKey, FLOWER_KEY, { key: FLOWER_KEY }, c, c);
     }
@@ -225,19 +231,19 @@ export function allowedExposureSizes(tileKeyStr, handIds = null) {
 // ── NEWS ─────────────────────────────────────────────────────
 // The card prints NEWS as one section — a single North, East, West and South
 // standing together — so it is a group you can claim a discard into, even
-// though unlike a pung its four tiles are all different. Jokers never stand in
-// for a single tile, so the other three winds have to be in hand.
+// though unlike a pung its four tiles are all different. Being a group of
+// four, it takes jokers: three of them behind one real wind is a legal NEWS.
 
-// Does this hand ask for a NEWS group? Four wind groups of one tile each with
-// four different letters can only be the four winds, whatever the letters are
-// placeholders for.
+// The wind groups that make up a NEWS section: four single winds under four
+// different letters. Whatever the letters stand for, four different winds can
+// only be North, East, West and South.
+function newsWindGroups(groups) {
+  const singles = groups.filter(g => g.t === 'w' && (g.c ?? 1) === 1);
+  return new Set(singles.map(g => g.w)).size === WINDS.length ? singles : [];
+}
+
 export function handHasNewsGroup(hand) {
-  return hand.groupSets.some(groups => {
-    const singles = new Set(
-      groups.filter(g => g.t === 'w' && (g.c ?? 1) === 1).map(g => g.w)
-    );
-    return singles.size === WINDS.length;
-  });
+  return hand.groupSets.some(groups => newsWindGroups(groups).length > 0);
 }
 
 export function newsExposureAllowed(handIds = null) {
@@ -245,21 +251,24 @@ export function newsExposureAllowed(handIds = null) {
   return pool.some(handHasNewsGroup);
 }
 
-function newsClaimOption(discardTile, handTiles, markedHandIds) {
+function newsClaimOption(discardTile, handTiles, markedHandIds, jokers) {
   if (discardTile.kind !== TILE_KIND.WIND) return null;
   if (!newsExposureAllowed(markedHandIds)) return null;
 
-  const needed = WINDS.filter(w => w !== discardTile.wind).map(windKey);
-  const held   = new Set(handTiles.map(t => t.key));
-  if (needed.some(key => !held.has(key))) return null;
+  // One of each of the other three winds, with jokers covering any the rack is
+  // missing.
+  const needed   = WINDS.filter(w => w !== discardTile.wind).map(windKey);
+  const held     = new Set(handTiles.map(t => t.key));
+  const fromHand = needed.filter(key => held.has(key)).length;
+  if (needed.length - fromHand > jokers) return null;
 
   return {
     id:   'news',
     type: 'news',
     keys: needed,
     size: WINDS.length,
-    fromHand:   needed.length,
-    jokersUsed: 0,
+    fromHand,
+    jokersUsed: needed.length - fromHand,
   };
 }
 
@@ -284,7 +293,7 @@ export function claimOptions(discardTile, handTiles, markedHandIds = []) {
       jokersUsed: Math.max(0, size - 1 - matching),
     }));
 
-  const news = newsClaimOption(discardTile, handTiles, markedHandIds);
+  const news = newsClaimOption(discardTile, handTiles, markedHandIds, jokers);
   if (news) options.push(news);
 
   return options;

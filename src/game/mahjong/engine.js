@@ -265,30 +265,28 @@ export function claimDiscard(prev, playerId, option) {
   if (idx === -1) throw new Error('That tile is no longer on the pile.');
   const [tile] = state.discards.splice(idx, 1);
 
+  // What the group needs out of the rack beyond the claimed tile itself: more
+  // of the same tile for a pung, one of each of the other winds for NEWS.
+  const want = new Map();
+  if (picked.type === 'news') for (const key of picked.keys) want.set(key, 1);
+  else if (picked.fromHand > 0) want.set(tile.key, picked.fromHand);
+
   const exposed = [tile];
   const keep    = [];
+  const rest    = [];
 
-  if (picked.type === 'news') {
-    // One of each of the other three winds — a joker can't stand in for any of
-    // them, so the rack has to hold all three.
-    const needed = new Set(picked.keys);
-    for (const t of p.hand) {
-      if (needed.has(t.key)) { exposed.push(t); needed.delete(t.key); }
-      else keep.push(t);
-    }
-    if (needed.size > 0) throw new Error('You need the other three winds to lay down NEWS.');
-  } else {
-    // Matching tiles first, jokers only for what's left over.
-    const rest = [];
-    for (const t of p.hand) {
-      if (exposed.length < 1 + picked.fromHand && t.key === tile.key) exposed.push(t);
-      else rest.push(t);
-    }
-    let needJokers = picked.jokersUsed;
-    for (const t of rest) {
-      if (needJokers > 0 && t.kind === TILE_KIND.JOKER) { exposed.push(t); needJokers--; }
-      else keep.push(t);
-    }
+  for (const t of p.hand) {
+    const n = want.get(t.key) ?? 0;
+    if (n > 0) { exposed.push(t); want.set(t.key, n - 1); }
+    else rest.push(t);
+  }
+
+  // Jokers cover whatever the rack was short of. A NEWS section is four tiles
+  // wide, so it takes them like any other group of three or more.
+  let needJokers = picked.jokersUsed;
+  for (const t of rest) {
+    if (needJokers > 0 && t.kind === TILE_KIND.JOKER) { exposed.push(t); needJokers--; }
+    else keep.push(t);
   }
   if (exposed.length !== picked.size) throw new Error('Not enough tiles to lay that down.');
 

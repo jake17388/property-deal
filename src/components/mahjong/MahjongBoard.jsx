@@ -439,9 +439,8 @@ export default function MahjongBoard({ gameState, playerId, playerNames, actions
           <>
             {claims.map(o => (
               <button key={o.id} onClick={() => run(() => actions.mjClaim(o.id))} style={btn('#1d4ed8', 1)}>
-                {o.type === 'news'
-                  ? 'Claim NEWS'
-                  : `Claim ×${o.size}${o.jokersUsed ? ` (${o.jokersUsed}J)` : ''}`}
+                {o.type === 'news' ? 'Claim NEWS' : `Claim ×${o.size}`}
+                {o.jokersUsed ? ` (${o.jokersUsed}J)` : ''}
               </button>
             ))}
             <button onClick={() => run(() => actions.mjDraw())} style={btn('#15803d', 1)}>
