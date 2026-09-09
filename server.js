@@ -458,7 +458,7 @@ function scheduleMahjongBot(room) {
 function applyMahjongBotMove(state, botId, move) {
   switch (move?.type) {
     case 'pass':    return mj.confirmPass(mj.setPassSelection(state, botId, move.tileIds), botId);
-    case 'claim':   return mj.claimDiscard(state, botId, move.size);
+    case 'claim':   return mj.claimDiscard(state, botId, move.option);
     case 'draw':    return mj.drawFromWall(state, botId);
     case 'discard': return mj.discardTile(state, botId, move.tileId);
     case 'declare': return mj.declareMahjong(state, botId);
@@ -804,8 +804,8 @@ io.on('connection', socket => {
     applyMahjong(socket, (state, pid) => mj.drawFromWall(state, pid));
   });
 
-  socket.on('mj:claim', ({ size }) => {
-    applyMahjong(socket, (state, pid) => mj.claimDiscard(state, pid, size));
+  socket.on('mj:claim', ({ option, size }) => {
+    applyMahjong(socket, (state, pid) => mj.claimDiscard(state, pid, option ?? size));
   });
 
   socket.on('mj:discard', ({ tileId }) => {

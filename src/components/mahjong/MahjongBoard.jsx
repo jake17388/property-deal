@@ -438,8 +438,10 @@ export default function MahjongBoard({ gameState, playerId, playerNames, actions
         {!inCharleston && isMyTurn && gameState.turnStage === 'draw' && (
           <>
             {claims.map(o => (
-              <button key={o.size} onClick={() => run(() => actions.mjClaim(o.size))} style={btn('#1d4ed8', 1)}>
-                Claim ×{o.size}{o.jokersUsed ? ` (${o.jokersUsed}J)` : ''}
+              <button key={o.id} onClick={() => run(() => actions.mjClaim(o.id))} style={btn('#1d4ed8', 1)}>
+                {o.type === 'news'
+                  ? 'Claim NEWS'
+                  : `Claim ×${o.size}${o.jokersUsed ? ` (${o.jokersUsed}J)` : ''}`}
               </button>
             ))}
             <button onClick={() => run(() => actions.mjDraw())} style={btn('#15803d', 1)}>

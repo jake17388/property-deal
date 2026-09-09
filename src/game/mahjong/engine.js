@@ -244,7 +244,10 @@ export function drawFromWall(prev, playerId) {
   return state;
 }
 
-export function claimDiscard(prev, playerId, size) {
+// `option` is a claim option id from `claimOptions` — 'group:3', 'news', and
+// so on. A bare number still means a group of that many matching tiles, so a
+// client that hasn't reloaded yet keeps working.
+export function claimDiscard(prev, playerId, option) {
   const state = clone(prev);
   requireTurn(state, playerId, 'draw');
 
@@ -253,35 +256,50 @@ export function claimDiscard(prev, playerId, size) {
 
   const p       = state.players[playerId];
   const options = claimOptions(claim.tile, p.hand, p.markedHands);
-  const picked  = options.find(o => o.size === size);
-  if (!picked) throw new Error('You cannot lay down a group of that size with this tile.');
+  const picked  = options.find(o => o.id === option)
+    ?? options.find(o => o.type === 'group' && o.size === Number(option));
+  if (!picked) throw new Error('You cannot lay that group down with this tile.');
 
   // Take the tile off the pile.
   const idx = state.discards.findIndex(t => t.id === claim.tile.id);
   if (idx === -1) throw new Error('That tile is no longer on the pile.');
   const [tile] = state.discards.splice(idx, 1);
 
-  // Matching tiles first, jokers only for what's left over.
   const exposed = [tile];
-  const rest    = [];
-  for (const t of p.hand) {
-    if (exposed.length < 1 + picked.fromHand && t.key === tile.key) exposed.push(t);
-    else rest.push(t);
+  const keep    = [];
+
+  if (picked.type === 'news') {
+    // One of each of the other three winds — a joker can't stand in for any of
+    // them, so the rack has to hold all three.
+    const needed = new Set(picked.keys);
+    for (const t of p.hand) {
+      if (needed.has(t.key)) { exposed.push(t); needed.delete(t.key); }
+      else keep.push(t);
+    }
+    if (needed.size > 0) throw new Error('You need the other three winds to lay down NEWS.');
+  } else {
+    // Matching tiles first, jokers only for what's left over.
+    const rest = [];
+    for (const t of p.hand) {
+      if (exposed.length < 1 + picked.fromHand && t.key === tile.key) exposed.push(t);
+      else rest.push(t);
+    }
+    let needJokers = picked.jokersUsed;
+    for (const t of rest) {
+      if (needJokers > 0 && t.kind === TILE_KIND.JOKER) { exposed.push(t); needJokers--; }
+      else keep.push(t);
+    }
   }
-  let needJokers = picked.jokersUsed;
-  const keep = [];
-  for (const t of rest) {
-    if (needJokers > 0 && t.kind === TILE_KIND.JOKER) { exposed.push(t); needJokers--; }
-    else keep.push(t);
-  }
-  if (exposed.length !== size) throw new Error('Not enough tiles to lay that down.');
+  if (exposed.length !== picked.size) throw new Error('Not enough tiles to lay that down.');
 
   p.hand      = keep;
-  p.exposures = [...p.exposures, { key: tile.key, tiles: exposed }];
+  p.exposures = [...p.exposures, { key: tile.key, group: picked.type, tiles: exposed }];
 
   state.claimable = null;
   state.turnStage = 'discard';
-  log(state, `${nameOf(state, playerId)} claimed the discard and exposed ${size} tiles.`);
+  log(state, picked.type === 'news'
+    ? `${nameOf(state, playerId)} claimed the discard and exposed NEWS.`
+    : `${nameOf(state, playerId)} claimed the discard and exposed ${picked.size} tiles.`);
   return state;
 }
 

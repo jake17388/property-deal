@@ -224,7 +224,49 @@ export function allowedExposureSizes(tileKeyStr, handIds = null) {
   return [...sizes].sort((a, b) => a - b);
 }
 
-// What the player could actually lay down with the discard: sizes that a card
+// ── NEWS ─────────────────────────────────────────────────────
+// The card prints NEWS as one section — a single North, East, West and South
+// standing together — so it is a group you can claim a discard into, even
+// though unlike a pung its four tiles are all different. Jokers never stand in
+// for a single tile, so the other three winds have to be in hand.
+
+// Does this hand ask for a NEWS group? Four wind groups of one tile each with
+// four different letters can only be the four winds, whatever the letters are
+// placeholders for.
+export function handHasNewsGroup(hand) {
+  if (hand.concealed) return false;   // nothing can be exposed in a concealed hand
+  return hand.groupSets.some(groups => {
+    const singles = new Set(
+      groups.filter(g => g.t === 'w' && (g.c ?? 1) === 1).map(g => g.w)
+    );
+    return singles.size === WINDS.length;
+  });
+}
+
+export function newsExposureAllowed(handIds = null) {
+  const pool = handIds?.length ? handIds.map(id => HANDS_BY_ID[id]).filter(Boolean) : ALL_HANDS;
+  return pool.some(handHasNewsGroup);
+}
+
+function newsClaimOption(discardTile, handTiles, markedHandIds) {
+  if (discardTile.kind !== TILE_KIND.WIND) return null;
+  if (!newsExposureAllowed(markedHandIds)) return null;
+
+  const needed = WINDS.filter(w => w !== discardTile.wind).map(windKey);
+  const held   = new Set(handTiles.map(t => t.key));
+  if (needed.some(key => !held.has(key))) return null;
+
+  return {
+    id:   'news',
+    type: 'news',
+    keys: needed,
+    size: WINDS.length,
+    fromHand:   needed.length,
+    jokersUsed: 0,
+  };
+}
+
+// What the player could actually lay down with the discard: groups that a card
 // hand asks for AND that their rack can cover (matching tiles, jokers filling
 // the rest). Never uses a joker for the claimed tile itself.
 export function claimOptions(discardTile, handTiles, markedHandIds = []) {
@@ -235,11 +277,18 @@ export function claimOptions(discardTile, handTiles, markedHandIds = []) {
   const jokers   = handTiles.filter(t => t.kind === TILE_KIND.JOKER).length;
   const ceiling  = 1 + matching + jokers;
 
-  return allowedExposureSizes(discardTile.key, markedHandIds)
+  const options = allowedExposureSizes(discardTile.key, markedHandIds)
     .filter(size => size <= ceiling)
     .map(size => ({
+      id:   `group:${size}`,
+      type: 'group',
       size,
       fromHand:   Math.min(matching, size - 1),
       jokersUsed: Math.max(0, size - 1 - matching),
     }));
+
+  const news = newsClaimOption(discardTile, handTiles, markedHandIds);
+  if (news) options.push(news);
+
+  return options;
 }

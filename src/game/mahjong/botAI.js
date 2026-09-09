@@ -9,7 +9,7 @@
 
 import { TILE_KIND } from './tiles.js';
 import { ALL_HANDS } from './card.js';
-import { handProgress, claimOptions, allowedExposureSizes, winningHandIds } from './match.js';
+import { handProgress, claimOptions, allowedExposureSizes, newsExposureAllowed, winningHandIds } from './match.js';
 import { completedHandsFor } from './engine.js';
 
 export const BOT_NAMES = ['Sum', 'Ting', 'Wong'];
@@ -66,7 +66,7 @@ function worstTile(player, hand = player.hand) {
   return best;
 }
 
-// The exposure size to claim the discard with, or null to draw instead.
+// The claim option id to take the discard with, or null to draw instead.
 function chooseClaim(state, player) {
   const claim = state.claimable;
   if (!claim) return null;
@@ -76,11 +76,13 @@ function chooseClaim(state, player) {
     .filter(o => o.jokersUsed === 0);
   if (options.length === 0) return null;
 
+  const biggest = list => list.reduce((a, b) => (b.size > a.size ? b : a)).id;
+
   const exposed = player.exposures.flatMap(e => e.tiles);
   const withTile = [...exposed, ...player.hand, claim.tile];
 
   // A tile that finishes the hand is worth taking whatever it exposes.
-  if (winningHandIds(withTile).length > 0) return Math.max(...options.map(o => o.size));
+  if (winningHandIds(withTile).length > 0) return biggest(options);
 
   const before = rankHands([...exposed, ...player.hand], true);
   const after  = rankHands(withTile, true);
@@ -89,15 +91,16 @@ function chooseClaim(state, player) {
   // Only lay down a group one of the best hands actually asks for.
   const targets = after.filter(h => h.progress === after[0].progress).map(h => h.id);
   const wanted  = new Set(allowedExposureSizes(claim.tile.key, targets));
-  const sizes   = options.map(o => o.size).filter(size => wanted.has(size));
+  const news    = newsExposureAllowed(targets);
+  const usable  = options.filter(o => (o.type === 'news' ? news : wanted.has(o.size)));
 
-  return sizes.length > 0 ? Math.max(...sizes) : null;
+  return usable.length > 0 ? biggest(usable) : null;
 }
 
 // ── Moves ────────────────────────────────────────────────────
 // Every bot decision comes back in this shape and is handed straight to the
 // matching engine call:
-//   { type: 'pass', tileIds } | { type: 'claim', size } | { type: 'draw' }
+//   { type: 'pass', tileIds } | { type: 'claim', option } | { type: 'draw' }
 //   { type: 'discard', tileId } | { type: 'declare' }
 
 // The three tiles the bot passes in a Charleston round.
@@ -132,8 +135,8 @@ export function getBotMove(state, botId) {
   if (state.playerOrder[state.currentPlayerIndex] !== botId) return null;
 
   if (state.turnStage === 'draw') {
-    const size = chooseClaim(state, player);
-    return size ? { type: 'claim', size } : { type: 'draw' };
+    const option = chooseClaim(state, player);
+    return option ? { type: 'claim', option } : { type: 'draw' };
   }
 
   if (completedHandsFor(player).length > 0) return { type: 'declare' };

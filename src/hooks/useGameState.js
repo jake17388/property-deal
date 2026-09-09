@@ -127,7 +127,7 @@ export function useGameState(socket) {
     // Mah Jong
     mjConfirmPass:   (tileIds)                   => socket.emit('mj:confirmPass', { tileIds }),
     mjDraw:          ()                          => socket.emit('mj:draw'),
-    mjClaim:         (size)                      => socket.emit('mj:claim',    { size }),
+    mjClaim:         (option)                    => socket.emit('mj:claim',    { option }),
     mjDiscard:       (tileId)                    => socket.emit('mj:discard',  { tileId }),
     mjUseBlank:      (blankTileId, targetTileId) => socket.emit('mj:useBlank', { blankTileId, targetTileId }),
     mjSetMarked:     (handIds)                   => socket.emit('mj:setMarked', { handIds }),
