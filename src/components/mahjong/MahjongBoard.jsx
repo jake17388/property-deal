@@ -4,7 +4,7 @@ import TileRack from './TileRack.jsx';
 import WinCard from './WinCard.jsx';
 import { HANDS_BY_ID, SLOT_COLOR } from '../../game/mahjong/card.js';
 import { claimOptions, winningHandIds, handProgress } from '../../game/mahjong/match.js';
-import { passTargetIndex } from '../../game/mahjong/engine.js';
+import { passTargetIndex, mahjongClaimFor } from '../../game/mahjong/engine.js';
 import { TILE_KIND } from '../../game/mahjong/tiles.js';
 
 const PASS_SIZE = 3;
@@ -54,6 +54,18 @@ export default function MahjongBoard({ gameState, playerId, playerNames, actions
     if (!isMyTurn || inCharleston || gameState.turnStage !== 'draw' || !claimable) return [];
     return claimOptions(claimable.tile, me?.hand ?? [], marked);
   }, [isMyTurn, inCharleston, gameState.turnStage, claimable, me?.hand, marked]);
+
+  // The discard is also yours for the taking when it wins the game — a call
+  // that isn't tied to your turn, and the only one a hand of singles and pairs
+  // ever gets to make.
+  const mahjongCall = useMemo(
+    () => mahjongClaimFor(gameState, playerId),
+    [gameState, playerId]
+  );
+
+  // Your turn, a tile sitting there, and nothing you can do with it: say why.
+  const claimHint = isMyTurn && !inCharleston && gameState.turnStage === 'draw'
+    && claimable && claims.length === 0 && !mahjongCall;
 
   // Tiles that arrived since your last discard, and where from — a drawn tile
   // gets sorted into the middle of the rack, so it needs pointing out.
@@ -119,9 +131,13 @@ export default function MahjongBoard({ gameState, playerId, playerNames, actions
     status = gameState.turnStage === 'draw'
       ? (claims.length ? 'Your turn — claim the discard or draw' : 'Your turn — draw a tile')
       : 'Your turn — discard a tile';
+    if (mahjongCall) status = 'That discard completes your hand — call Mah Jong!';
     statusTone = 'active';
   } else {
-    status = `${name(currentId)}'s turn`;
+    status = mahjongCall
+      ? 'That discard completes your hand — call Mah Jong!'
+      : `${name(currentId)}'s turn`;
+    if (mahjongCall) statusTone = 'active';
   }
 
   const opponents = order.filter(id => id !== playerId);
@@ -231,10 +247,16 @@ export default function MahjongBoard({ gameState, playerId, playerNames, actions
                   tile={t}
                   small
                   onClick={blankMode ? handlePileTile : undefined}
-                  highlighted={!blankMode && claimable?.tile?.id === t.id && claims.length > 0}
+                  highlighted={!blankMode && claimable?.tile?.id === t.id && (claims.length > 0 || !!mahjongCall)}
                   dimmed={blankMode && t.kind === TILE_KIND.BLANK}
                 />
               ))}
+            </div>
+          )}
+          {claimHint && (
+            <div style={{ fontSize: 11, color: '#9ca3af', marginTop: 6, lineHeight: 1.35 }}>
+              A discard can only be taken to expose a group of 3 or more — or to
+              complete your hand. Singles and pairs have to come off the wall.
             </div>
           )}
         </div>
@@ -419,9 +441,9 @@ export default function MahjongBoard({ gameState, playerId, playerNames, actions
           🀄 Card{marked.length ? ` (${marked.length})` : ''}
         </button>
 
-        {completedIds.length > 0 && gameState.phase === 'playing' && (
+        {(completedIds.length > 0 || mahjongCall) && gameState.phase === 'playing' && (
           <button onClick={() => run(() => actions.mjDeclare())} style={{ ...btn('#b45309', 1), flexBasis: '100%' }}>
-            🎉 MAH JONG!
+            {mahjongCall && completedIds.length === 0 ? '🎉 CALL MAH JONG!' : '🎉 MAH JONG!'}
           </button>
         )}
 
