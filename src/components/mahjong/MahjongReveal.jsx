@@ -34,7 +34,7 @@ export default function MahjongReveal({ gameState, playerId, playerNames, winnin
                   ))}
                 </div>
                 <div style={{ fontSize: 10.5, color: '#92400e', marginTop: 2 }}>
-                  {h.category} · {h.concealed ? 'concealed · ' : ''}{h.points} points
+                  {h.category} · {h.points} points
                 </div>
               </div>
             );

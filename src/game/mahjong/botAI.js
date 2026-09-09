@@ -21,11 +21,9 @@ const BREADTH_HANDS = 5;
 
 // ── Reading the rack ─────────────────────────────────────────
 
-// Every card hand, best covered first. Once a bot has exposed tiles the
-// concealed hands are out of reach, so they stop counting.
-function rankHands(tiles, hasExposures) {
-  const hands = hasExposures ? ALL_HANDS.filter(h => !h.concealed) : ALL_HANDS;
-  return hands
+// Every card hand, best covered first.
+function rankHands(tiles) {
+  return ALL_HANDS
     .map(hand => ({ id: hand.id, progress: handProgress(hand, tiles) }))
     .sort((a, b) => b.progress - a.progress);
 }
@@ -33,8 +31,8 @@ function rankHands(tiles, hasExposures) {
 // One number for how promising a rack is. The hand it is closest to dominates;
 // the runners-up break ties, so a tile that keeps several hands alive is worth
 // more than one that only serves the leader.
-function rackScore(tiles, hasExposures) {
-  const ranked  = rankHands(tiles, hasExposures);
+function rackScore(tiles) {
+  const ranked  = rankHands(tiles);
   const best    = ranked[0]?.progress ?? 0;
   const breadth = ranked.slice(0, BREADTH_HANDS).reduce((sum, h) => sum + h.progress, 0);
   return best * 100 + breadth;
@@ -59,7 +57,7 @@ function worstTile(player, hand = player.hand) {
     if (seen.has(tile.key)) continue;   // interchangeable tiles cost the same
     seen.add(tile.key);
     const rest  = [...exposed, ...hand.filter(t => t.id !== tile.id)];
-    const score = rackScore(rest, exposed.length > 0);
+    const score = rackScore(rest);
     if (score > bestScore) { bestScore = score; best = tile; }
   }
 
@@ -84,8 +82,8 @@ function chooseClaim(state, player) {
   // A tile that finishes the hand is worth taking whatever it exposes.
   if (winningHandIds(withTile).length > 0) return biggest(options);
 
-  const before = rankHands([...exposed, ...player.hand], true);
-  const after  = rankHands(withTile, true);
+  const before = rankHands([...exposed, ...player.hand]);
+  const after  = rankHands(withTile);
   if ((after[0]?.progress ?? 0) <= (before[0]?.progress ?? 0)) return null;
 
   // Only lay down a group one of the best hands actually asks for.

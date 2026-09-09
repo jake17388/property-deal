@@ -43,7 +43,7 @@ function HandRow({ hand, marked, complete, progress, onToggle }) {
 
       <span style={{ flexShrink: 0, textAlign: 'right' }}>
         <span style={{ display: 'block', fontSize: 12, fontWeight: 800, color: '#111827' }}>
-          {hand.concealed ? 'C' : ''}{hand.points}
+          {hand.points}
         </span>
         {complete ? (
           <span style={{ fontSize: 9, fontWeight: 800, color: '#b45309' }}>COMPLETE</span>
@@ -110,7 +110,6 @@ export default function WinCard({ tiles, marked, completedIds, onToggle, onClose
                 suit {s}
               </span>
             ))}
-            <span style={{ color: '#6b7280' }}>· C = concealed hand</span>
           </div>
           <div style={{ fontSize: 10.5, color: '#1d4ed8', marginTop: 6, fontWeight: 600 }}>
             Tap a hand to mark it — marked hands stay on screen under your rack.

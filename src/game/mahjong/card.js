@@ -84,7 +84,7 @@ export const CATEGORIES = [
         display: [seg('FF 111 999', 1), seg('111 999', 2)],
       },
       {
-        id: 'HL8', points: 45, concealed: true, note: '#s any suit, red dragons, East wind',
+        id: 'HL8', points: 45, note: '#s any suit, red dragons, East wind',
         nums: 'lit', winds: 'lit',
         groupSets: [[NF(1), NF(2), NF(3), NF(4), NF(5), NF(6), NF(7), NF(8), NF(9),
                      DL('red', 3), W('E', 2)]],
@@ -126,13 +126,13 @@ export const CATEGORIES = [
         display: [seg('11 222 3333', 1), seg('222', 3), seg('11', 2)],
       },
       {
-        id: 'PA7', points: 40, concealed: true, note: 'these #s only, any dragons & winds',
+        id: 'PA7', points: 40, note: 'these #s only, any dragons & winds',
         nums: 'lit', winds: 'var',
         groupSets: [[N(1, 3, 2), N(2, 5, 2), N(3, 7, 2), N(3, 5, 2), N(2, 3, 2), D(1, 2), W('N', 2)]],
         display: [seg('33', 1), seg('55', 2), seg('77', 3), seg('55', 3), seg('33', 2), seg('DD NN', 1)],
       },
       {
-        id: 'PA8', points: 50, concealed: true, note: 'these #s only', nums: 'lit', winds: 'lit',
+        id: 'PA8', points: 50, note: 'these #s only', nums: 'lit', winds: 'lit',
         groupSets: [[N(2, 3), N(2, 4), N(2, 5), N(3, 6), N(3, 7), N(3, 8), D(1, 2),
                      N(3, 8), N(3, 7), N(3, 6), N(2, 5), N(2, 4), N(2, 3)]],
         display: [seg('345', 2), seg('678', 3), seg('DD', 1), seg('876', 3), seg('543', 2)],
@@ -178,7 +178,7 @@ export const CATEGORIES = [
         display: [seg('1111 333', 1), seg('5555 DDD', 3)],
       },
       {
-        id: 'LO6', points: 35, concealed: true, nums: 'lit', winds: 'lit',
+        id: 'LO6', points: 35, nums: 'lit', winds: 'lit',
         groupSets: [[N(1, 1, 3), N(2, 3, 3), N(3, 5, 3), N(1, 7, 3), N(3, 9, 2)]],
         display: [seg('111', 1), seg('333', 2), seg('555', 3), seg('777', 1), seg('99', 3)],
       },
@@ -277,7 +277,7 @@ export const CATEGORIES = [
         display: [seg('FF 111', 1), seg('2222', 3), seg('333', 2), seg('DD', 1)],
       },
       {
-        id: 'LL5', points: 40, concealed: true, note: 'any consec #s', nums: 'consec', winds: 'lit',
+        id: 'LL5', points: 40, note: 'any consec #s', nums: 'consec', winds: 'lit',
         groupSets: [[F(2), NV(1, 0, 2), NV(1, 1, 4), NV(1, 2, 4), NV(1, 3, 2)]],
         display: [seg('FF 11 2222 3333 44', 1)],
       },
@@ -312,13 +312,13 @@ export const CATEGORIES = [
         display: [seg('111 222 NN', 1), seg('111 222', 2)],
       },
       {
-        id: 'RP5', points: 40, concealed: true, note: 'these #s only', nums: 'lit', winds: 'lit',
+        id: 'RP5', points: 40, note: 'these #s only', nums: 'lit', winds: 'lit',
         groupSets: [[F(2), N(1, 1), N(1, 2), N(1, 3), N(1, 7), N(1, 8), N(1, 9),
                      N(3, 1), N(3, 2), N(3, 3), N(3, 7), N(3, 8), N(3, 9)]],
         display: [seg('FF 123 789', 1), seg('123 789', 3)],
       },
       {
-        id: 'RP6', points: 50, concealed: true, note: 'any like #, any winds', nums: 'like', winds: 'var',
+        id: 'RP6', points: 50, note: 'any like #, any winds', nums: 'like', winds: 'var',
         groupSets: [[NV(1, 0, 2), NV(2, 0, 2), NV(3, 0, 2), D(3, 2), W('N', 2),
                      NV(2, 0, 2), NV(1, 0, 2)]],
         display: [seg('11', 1), seg('11', 2), seg('11 DD', 3), seg('NN', 1), seg('11', 2), seg('11', 1)],
@@ -329,7 +329,7 @@ export const CATEGORIES = [
     name: 'POP CULTURE',
     hands: [
       {
-        id: 'PC1', points: 45, concealed: true, note: 'these #s only', nums: 'lit', winds: 'lit',
+        id: 'PC1', points: 45, note: 'these #s only', nums: 'lit', winds: 'lit',
         groupSets: [[N(1, 1), N(1, 3), N(3, 1), N(3, 3), N(2, 1), N(2, 3),
                      N(1, 8), N(1, 7), W('N'), W('E'), W('W'), W('S'), D(1, 2)]],
         display: [seg('TS Eras: 13', 1), seg('13', 3), seg('13', 2), seg('87 NEWS DD', 1)],

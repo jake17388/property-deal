@@ -208,13 +208,11 @@ export function winningHandIds(tiles) {
   return ALL_HANDS.filter(h => isHandComplete(h, tiles)).map(h => h.id);
 }
 
-// Exposure sizes (3+) that some *non-concealed* hand asks for as a group of
-// this tile. Concealed hands are excluded — you can't expose anything in one.
+// Exposure sizes (3+) that some hand asks for as a group of this tile.
 export function allowedExposureSizes(tileKeyStr, handIds = null) {
   const pool  = handIds?.length ? handIds.map(id => HANDS_BY_ID[id]).filter(Boolean) : ALL_HANDS;
   const sizes = new Set();
   for (const hand of pool) {
-    if (hand.concealed) continue;
     for (const v of handVariants(hand)) {
       for (const req of v.reqs) {
         if (req.key === tileKeyStr && req.count >= 3 && req.jokersOk) sizes.add(req.count);
@@ -234,7 +232,6 @@ export function allowedExposureSizes(tileKeyStr, handIds = null) {
 // four different letters can only be the four winds, whatever the letters are
 // placeholders for.
 export function handHasNewsGroup(hand) {
-  if (hand.concealed) return false;   // nothing can be exposed in a concealed hand
   return hand.groupSets.some(groups => {
     const singles = new Set(
       groups.filter(g => g.t === 'w' && (g.c ?? 1) === 1).map(g => g.w)
