@@ -129,6 +129,7 @@ export function useGameState(socket) {
     mjDraw:          ()                          => socket.emit('mj:draw'),
     mjClaim:         (option)                    => socket.emit('mj:claim',    { option }),
     mjDiscard:       (tileId)                    => socket.emit('mj:discard',  { tileId }),
+    mjSwapJoker:     (jokerTileId, handTileId)   => socket.emit('mj:swapJoker', { jokerTileId, handTileId }),
     mjUseBlank:      (blankTileId, targetTileId) => socket.emit('mj:useBlank', { blankTileId, targetTileId }),
     mjSetMarked:     (handIds)                   => socket.emit('mj:setMarked', { handIds }),
     mjDeclare:       ()                          => socket.emit('mj:declare'),

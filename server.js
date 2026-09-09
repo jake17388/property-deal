@@ -459,6 +459,7 @@ function applyMahjongBotMove(state, botId, move) {
   switch (move?.type) {
     case 'pass':    return mj.confirmPass(mj.setPassSelection(state, botId, move.tileIds), botId);
     case 'claim':   return mj.claimDiscard(state, botId, move.option);
+    case 'swapJoker': return mj.swapJoker(state, botId, move.jokerId, move.tileId);
     case 'draw':    return mj.drawFromWall(state, botId);
     case 'discard': return mj.discardTile(state, botId, move.tileId);
     case 'declare': return mj.declareMahjong(state, botId);
@@ -806,6 +807,10 @@ io.on('connection', socket => {
 
   socket.on('mj:claim', ({ option, size }) => {
     applyMahjong(socket, (state, pid) => mj.claimDiscard(state, pid, option ?? size));
+  });
+
+  socket.on('mj:swapJoker', ({ jokerTileId, handTileId }) => {
+    applyMahjong(socket, (state, pid) => mj.swapJoker(state, pid, jokerTileId, handTileId));
   });
 
   socket.on('mj:discard', ({ tileId }) => {

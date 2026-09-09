@@ -7,10 +7,10 @@
 // the group it would have to expose is one those hands actually ask for.
 // ============================================================
 
-import { TILE_KIND } from './tiles.js';
+import { JOKER_KEY, TILE_KIND } from './tiles.js';
 import { ALL_HANDS } from './card.js';
 import { handProgress, claimOptions, allowedExposureSizes, newsExposureAllowed, winningHandIds } from './match.js';
-import { completedHandsFor } from './engine.js';
+import { completedHandsFor, jokerSwapsFor } from './engine.js';
 
 export const BOT_NAMES = ['Sum', 'Ting', 'Wong'];
 
@@ -95,11 +95,44 @@ function chooseClaim(state, player) {
   return usable.length > 0 ? biggest(usable) : null;
 }
 
+// A joker is worth more than the tile it stands for, so long as handing that
+// tile over leaves a better rack behind. Swaps within the bot's own exposures
+// are skipped: the tile and the joker only trade places, which changes nothing.
+function chooseJokerSwap(state, botId) {
+  const player = state.players[botId];
+  const swaps  = jokerSwapsFor(state, botId).filter(s => s.ownerId !== botId);
+  if (swaps.length === 0) return null;
+
+  const exposed = player.exposures.flatMap(e => e.tiles);
+  const joker   = { kind: TILE_KIND.JOKER, key: JOKER_KEY };
+
+  let best = null;
+  let bestScore = rackScore([...exposed, ...player.hand]);
+  const seen = new Set();
+
+  for (const swap of swaps) {
+    for (const tile of player.hand) {
+      if (!swap.keys.includes(tile.key)) continue;
+      const tag = `${swap.jokerId}:${tile.key}`;   // copies of a tile cost the same
+      if (seen.has(tag)) continue;
+      seen.add(tag);
+
+      const after = rackScore([...exposed, ...player.hand.filter(t => t.id !== tile.id), joker]);
+      if (after > bestScore) {
+        bestScore = after;
+        best = { type: 'swapJoker', jokerId: swap.jokerId, tileId: tile.id };
+      }
+    }
+  }
+  return best;
+}
+
 // ── Moves ────────────────────────────────────────────────────
 // Every bot decision comes back in this shape and is handed straight to the
 // matching engine call:
 //   { type: 'pass', tileIds } | { type: 'claim', option } | { type: 'draw' }
 //   { type: 'discard', tileId } | { type: 'declare' }
+//   { type: 'swapJoker', jokerId, tileId }
 
 // The three tiles the bot passes in a Charleston round.
 export function getBotPassSelection(state, botId) {
@@ -133,6 +166,10 @@ export function getBotMove(state, botId) {
   if (state.playerOrder[state.currentPlayerIndex] !== botId) return null;
 
   if (state.turnStage === 'draw') {
+    // Buying a joker back is free — it is not the turn, so it comes first.
+    const swap = chooseJokerSwap(state, botId);
+    if (swap) return swap;
+
     const option = chooseClaim(state, player);
     return option ? { type: 'claim', option } : { type: 'draw' };
   }

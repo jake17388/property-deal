@@ -4,7 +4,7 @@ import TileRack from './TileRack.jsx';
 import WinCard from './WinCard.jsx';
 import { HANDS_BY_ID, SLOT_COLOR } from '../../game/mahjong/card.js';
 import { claimOptions, winningHandIds, handProgress } from '../../game/mahjong/match.js';
-import { passTargetIndex } from '../../game/mahjong/engine.js';
+import { passTargetIndex, jokerSwapsFor } from '../../game/mahjong/engine.js';
 import { TILE_KIND } from '../../game/mahjong/tiles.js';
 
 const PASS_SIZE = 3;
@@ -18,6 +18,9 @@ export default function MahjongBoard({ gameState, playerId, playerNames, actions
   const [showLog,     setShowLog]     = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [blankMode,   setBlankMode]   = useState(null); // id of the blank being spent
+  // Taking a joker off the table: first pick the joker, then — only when more
+  // than one of your tiles would buy it — pick the tile to hand over.
+  const [swapMode,    setSwapMode]    = useState(null); // null | { key, jokerId }
   const [error,       setError]       = useState(null);
   const pileRef = useRef(null);
 
@@ -34,6 +37,12 @@ export default function MahjongBoard({ gameState, playerId, playerNames, actions
     gameState.currentPlayerIndex, gameState.charleston?.round ?? 0,
   ].join(':');
   const selected = selection.key === turnKey ? selection.ids : [];
+
+  // Taking a joker belongs to a turn rather than to a stage of one — it can be
+  // done either side of the draw — so it is tagged with the turn alone.
+  const swapKey = [
+    gameState.phase, gameState.currentPlayerIndex, gameState.charleston?.round ?? 0,
+  ].join(':');
 
   function setSelected(update) {
     setSelection(prev => {
@@ -55,6 +64,21 @@ export default function MahjongBoard({ gameState, playerId, playerNames, actions
     return claimOptions(claimable.tile, me?.hand ?? [], marked);
   }, [isMyTurn, inCharleston, gameState.turnStage, claimable, me?.hand, marked]);
 
+  const jokerSwaps  = useMemo(() => jokerSwapsFor(gameState, playerId), [gameState, playerId]);
+  const swapTargets = useMemo(() => new Set(jokerSwaps.map(s => s.jokerId)), [jokerSwaps]);
+
+  // Tagging the mode with the turn it was opened in means it falls away on its
+  // own once the turn moves on, and so does having nothing left to take.
+  const swapping     = jokerSwaps.length > 0 && swapMode?.key === swapKey ? swapMode : null;
+  const pickingJoker = !!swapping && !swapping.jokerId;
+
+  // Once a joker is picked, the tiles in your rack that would buy it.
+  const swapCandidates = useMemo(() => {
+    const swap = swapping?.jokerId && jokerSwaps.find(s => s.jokerId === swapping.jokerId);
+    if (!swap) return null;
+    return new Set((me?.hand ?? []).filter(t => swap.keys.includes(t.key)).map(t => t.id));
+  }, [swapping, jokerSwaps, me?.hand]);
+
   // Tiles that arrived since your last discard, and where from — a drawn tile
   // gets sorted into the middle of the rack, so it needs pointing out.
   const newIds = useMemo(() => new Set(me?.justReceived ?? []), [me?.justReceived]);
@@ -62,6 +86,7 @@ export default function MahjongBoard({ gameState, playerId, playerNames, actions
     wall: 'just drawn',
     pile: 'from the pile',
     pass: 'just received',
+    swap: 'swapped in',
   }[me?.justReceivedFrom] ?? null;
 
   const myBlank = me?.hand?.find(t => t.kind === TILE_KIND.BLANK);
@@ -78,6 +103,13 @@ export default function MahjongBoard({ gameState, playerId, playerNames, actions
 
   function toggleTile(tile) {
     if (blankMode) return;
+    if (swapping) {
+      if (swapCandidates?.has(tile.id)) {
+        run(() => actions.mjSwapJoker(swapping.jokerId, tile.id));
+        setSwapMode(null);
+      }
+      return;
+    }
     if (inCharleston) {
       if (me?.passReady) return;
       setSelected(sel => sel.includes(tile.id)
@@ -99,6 +131,34 @@ export default function MahjongBoard({ gameState, playerId, playerNames, actions
     if (tile.kind === TILE_KIND.BLANK) { setError('You cannot swap a blank for a blank.'); return; }
     actions.mjUseBlank(blankMode, tile.id);
     setBlankMode(null);
+  }
+
+  // Tapping a joker on the table. When only one kind of tile would buy it the
+  // choice is already made, so the swap goes straight through.
+  function pickJoker(tile) {
+    const swap = jokerSwaps.find(s => s.jokerId === tile.id);
+    if (!swap) return;
+    const candidates = (me?.hand ?? []).filter(t => swap.keys.includes(t.key));
+    if (new Set(candidates.map(t => t.key)).size === 1) {
+      run(() => actions.mjSwapJoker(tile.id, candidates[0].id));
+      setSwapMode(null);
+    } else {
+      setSwapMode({ key: swapKey, jokerId: tile.id });
+    }
+  }
+
+  // A tile in someone's laid-down group — a joker in one is up for grabs.
+  function exposedTile(tile) {
+    const swappable = pickingJoker && swapTargets.has(tile.id);
+    return (
+      <Tile
+        key={tile.id}
+        tile={tile}
+        small
+        onClick={swappable ? pickJoker : undefined}
+        highlighted={swappable}
+      />
+    );
   }
 
   function toggleMarked(handId) {
@@ -186,6 +246,21 @@ export default function MahjongBoard({ gameState, playerId, playerNames, actions
           </span>
           <button onClick={() => setBlankMode(null)} style={{
             background: 'transparent', color: '#92400e', border: '1px solid #f59e0b',
+            borderRadius: 20, padding: '4px 12px', fontSize: 12, cursor: 'pointer', fontWeight: 600,
+          }}>Cancel</button>
+        </div>
+      )}
+
+      {swapping && (
+        <div style={{
+          background: '#fff7ed', borderBottom: '2px solid #ea580c', padding: '10px 16px',
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0, zIndex: 9,
+        }}>
+          <span style={{ fontSize: 13, fontWeight: 600, color: '#9a3412' }}>
+            {pickingJoker ? '👆 Pick a joker on the table' : '👆 Pick the tile to hand over'}
+          </span>
+          <button onClick={() => setSwapMode(null)} style={{
+            background: 'transparent', color: '#9a3412', border: '1px solid #ea580c',
             borderRadius: 20, padding: '4px 12px', fontSize: 12, cursor: 'pointer', fontWeight: 600,
           }}>Cancel</button>
         </div>
@@ -287,7 +362,7 @@ export default function MahjongBoard({ gameState, playerId, playerNames, actions
                       display: 'flex', gap: 2, padding: 2,
                       background: '#f9fafb', borderRadius: 6, border: '1px dashed #d1d5db',
                     }}>
-                      {e.tiles.map(t => <Tile key={t.id} tile={t} small />)}
+                      {e.tiles.map(exposedTile)}
                     </div>
                   ))}
                 </div>
@@ -311,7 +386,7 @@ export default function MahjongBoard({ gameState, playerId, playerNames, actions
                   display: 'flex', gap: 2, padding: 2,
                   background: '#f9fafb', borderRadius: 6, border: '1px dashed #d1d5db',
                 }}>
-                  {e.tiles.map(t => <Tile key={t.id} tile={t} small />)}
+                  {e.tiles.map(exposedTile)}
                 </div>
               ))}
             </div>
@@ -403,6 +478,7 @@ export default function MahjongBoard({ gameState, playerId, playerNames, actions
         <TileRack
           tiles={me?.hand ?? []}
           selectedIds={selected}
+          highlightIds={swapCandidates}
           newIds={newIds}
           onSelect={toggleTile}
           onReorder={ids => actions.mjReorder(ids)}
@@ -456,6 +532,12 @@ export default function MahjongBoard({ gameState, playerId, playerNames, actions
             style={btn(selected[0] ? '#dc2626' : '#d1d5db', 1.4)}
           >
             {selected[0] ? 'Discard Tile' : 'Select a tile to discard'}
+          </button>
+        )}
+
+        {jokerSwaps.length > 0 && !swapping && !blankMode && (
+          <button onClick={() => setSwapMode({ key: swapKey, jokerId: null })} style={btn('#ea580c', 1)}>
+            🃏 Take a Joker
           </button>
         )}
 

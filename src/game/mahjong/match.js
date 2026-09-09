@@ -272,6 +272,20 @@ function newsClaimOption(discardTile, handTiles, markedHandIds, jokers) {
   };
 }
 
+// Which tiles a joker sitting in a group on the table stands in for — what
+// someone has to hand over to buy it back. A pung and up is all one tile; a
+// NEWS section is short whichever winds its jokers are covering.
+export function jokerReplacementKeys(exposure) {
+  if (!exposure) return [];
+  if (exposure.group === 'news') {
+    const present = new Set(
+      exposure.tiles.filter(t => t.kind !== TILE_KIND.JOKER).map(t => t.key)
+    );
+    return WINDS.map(windKey).filter(key => !present.has(key));
+  }
+  return [exposure.key];
+}
+
 // What the player could actually lay down with the discard: groups that a card
 // hand asks for AND that their rack can cover (matching tiles, jokers filling
 // the rest). Never uses a joker for the claimed tile itself.

@@ -22,7 +22,7 @@ function slotFor(index, from, over) {
 // transforms instead. That keeps the browser's pointer capture attached to the
 // tile under the finger, which reordering the elements would put at risk, and
 // it lets the tiles slide into place rather than jumping.
-export default function TileRack({ tiles, selectedIds = [], newIds, onSelect, onReorder }) {
+export default function TileRack({ tiles, selectedIds = [], highlightIds, newIds, onSelect, onReorder }) {
   const wrapRef = useRef(null);
   const [drag, setDrag] = useState(null);
 
@@ -128,6 +128,7 @@ export default function TileRack({ tiles, selectedIds = [], newIds, onSelect, on
               small
               cursor="inherit"
               selected={selectedIds.includes(tile.id)}
+              highlighted={highlightIds?.has(tile.id)}
               isNew={newIds?.has(tile.id)}
             />
           </div>

@@ -6,8 +6,8 @@
 // that is safe to show the player.
 // ============================================================
 
-import { buildDeck, shuffle, sortTiles, TILE_KIND } from './tiles.js';
-import { winningHandIds, claimOptions } from './match.js';
+import { buildDeck, shuffle, sortTiles, keyLabel, tileLabel, TILE_KIND } from './tiles.js';
+import { winningHandIds, claimOptions, jokerReplacementKeys } from './match.js';
 
 export const MIN_PLAYERS = 2;
 export const MAX_PLAYERS = 4;
@@ -320,6 +320,79 @@ export function discardTile(prev, playerId, tileId) {
   log(state, `${nameOf(state, playerId)} discarded.`);
 
   if (state.wall.length === 0) return endInWallGame(state);
+  return state;
+}
+
+// ── Joker swaps ──────────────────────────────────────────────
+// A joker laid down in a group can be bought back with the tile it is standing
+// in for. Only on your turn, but every group on the table is fair game, your
+// own exposures included. It is not a turn in itself: you still draw or claim,
+// and you still discard.
+
+function findExposedJoker(state, jokerTileId) {
+  for (const ownerId of state.playerOrder) {
+    for (const exposure of state.players[ownerId].exposures) {
+      const slot = exposure.tiles.findIndex(
+        t => t.id === jokerTileId && t.kind === TILE_KIND.JOKER
+      );
+      if (slot !== -1) return { ownerId, exposure, slot };
+    }
+  }
+  return null;
+}
+
+// Every joker this player could take right now, and the tiles each would cost.
+// Empty unless it is their turn.
+export function jokerSwapsFor(state, playerId) {
+  const p = state.players?.[playerId];
+  if (!p || state.phase !== 'playing') return [];
+  if (state.playerOrder[state.currentPlayerIndex] !== playerId) return [];
+
+  const held  = new Set(p.hand.map(t => t.key));
+  const swaps = [];
+  for (const ownerId of state.playerOrder) {
+    for (const exposure of state.players[ownerId].exposures) {
+      const keys = jokerReplacementKeys(exposure).filter(key => held.has(key));
+      if (keys.length === 0) continue;
+      for (const t of exposure.tiles) {
+        if (t.kind === TILE_KIND.JOKER) swaps.push({ jokerId: t.id, ownerId, keys });
+      }
+    }
+  }
+  return swaps;
+}
+
+export function swapJoker(prev, playerId, jokerTileId, handTileId) {
+  const state = clone(prev);
+  if (state.phase !== 'playing') throw new Error('The game is not in play.');
+
+  const p = state.players[playerId];
+  if (!p) throw new Error('Player not found.');
+  if (state.playerOrder[state.currentPlayerIndex] !== playerId) {
+    throw new Error('You can only take a joker on your turn.');
+  }
+
+  const found = findExposedJoker(state, jokerTileId);
+  if (!found) throw new Error('That joker is not on the table.');
+
+  const idx = p.hand.findIndex(t => t.id === handTileId);
+  if (idx === -1) throw new Error('That tile is not in your hand.');
+  const tile = p.hand[idx];
+
+  const keys = jokerReplacementKeys(found.exposure);
+  if (!keys.includes(tile.key)) {
+    throw new Error(`That joker stands for ${keys.map(keyLabel).join(' or ')}.`);
+  }
+
+  // The tile takes the joker's place in the group, keeping it in order.
+  const [joker] = found.exposure.tiles.splice(found.slot, 1, tile);
+  p.hand = [...p.hand.slice(0, idx), ...p.hand.slice(idx + 1), joker];
+  p.justReceived     = [...p.justReceived, joker.id];
+  p.justReceivedFrom = 'swap';
+
+  log(state, found.ownerId === playerId
+    ? `${nameOf(state, playerId)} took a joker back out of their own exposure for ${tileLabel(tile)}.`
+    : `${nameOf(state, playerId)} took a joker from ${nameOf(state, found.ownerId)} for ${tileLabel(tile)}.`);
   return state;
 }
 
