@@ -10,7 +10,7 @@
 import { TILE_KIND } from './tiles.js';
 import { ALL_HANDS } from './card.js';
 import { handProgress, claimOptions, allowedExposureSizes, winningHandIds } from './match.js';
-import { completedHandsFor } from './engine.js';
+import { completedHandsFor, mahjongClaimFor } from './engine.js';
 
 export const BOT_NAMES = ['Sum', 'Ting', 'Wong'];
 
@@ -129,6 +129,11 @@ export function getBotMove(state, botId) {
   }
 
   if (state.phase !== 'playing') return null;
+
+  // A discard that finishes the hand is called before anything else, and a bot
+  // can call one whether or not the turn has come round to it.
+  if (mahjongClaimFor(state, botId)) return { type: 'declare' };
+
   if (state.playerOrder[state.currentPlayerIndex] !== botId) return null;
 
   if (state.turnStage === 'draw') {
@@ -157,6 +162,7 @@ export function getBotFallbackMove(state, botId) {
   }
 
   if (state.phase !== 'playing') return null;
+  if (state.playerOrder[state.currentPlayerIndex] !== botId) return null;
   if (state.turnStage === 'draw') return { type: 'draw' };
 
   const tile = player.hand.find(t => t.kind !== TILE_KIND.JOKER) ?? player.hand[0];

@@ -421,7 +421,8 @@ const MJ_BOT_DELAY_MS = 1200;
 
 // Returns the bot whose move the table is waiting on, or null. During the
 // Charleston that is any bot that has not locked in a pass yet; in play it is
-// only the bot whose turn it is.
+// the bot whose turn it is — unless another bot can call the discard for Mah
+// Jong, which beats whatever the player in turn was about to do.
 function nextMahjongBot(room) {
   const state = room.gameState;
   if (!state) return null;
@@ -432,6 +433,8 @@ function nextMahjongBot(room) {
     return botIds.find(id => state.players[id] && !state.players[id].passReady) ?? null;
   }
   if (state.phase === 'playing') {
+    const caller = botIds.find(id => mj.mahjongClaimFor(state, id));
+    if (caller) return caller;
     const currentId = state.playerOrder[state.currentPlayerIndex];
     return botIds.includes(currentId) ? currentId : null;
   }

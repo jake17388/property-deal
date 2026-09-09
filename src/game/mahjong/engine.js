@@ -350,8 +350,31 @@ export function useBlank(prev, playerId, blankTileId, targetTileId) {
 // ── Winning ──────────────────────────────────────────────────
 
 // Card hands these tiles complete right now (empty unless holding 14).
-export function completedHandsFor(player) {
-  return winningHandIds(allTilesOf(player));
+// Pass the discard you are eyeing as `extraTile` to ask the same of the hand
+// you would have with it.
+export function completedHandsFor(player, extraTile = null) {
+  const tiles = allTilesOf(player);
+  return winningHandIds(extraTile ? [...tiles, extraTile] : tiles);
+}
+
+// The discard on the pile when it wins the game for this player, or null.
+//
+// Claiming for an exposure needs a group of three or more, so a hand built out
+// of singles and pairs can never lay anything down — calling the tile that
+// finishes it is the one way those hands ever take a tile off the pile. That
+// call belongs to anyone at the table, in turn or out of it, because the hand
+// ends the moment it is made and turn order stops mattering.
+export function mahjongClaimFor(state, playerId) {
+  if (!state || state.phase !== 'playing') return null;
+
+  const claim = state.claimable;
+  if (!claim || claim.byId === playerId) return null;   // never your own discard
+
+  const p = state.players[playerId];
+  if (!p) return null;
+
+  const handIds = completedHandsFor(p, claim.tile);
+  return handIds.length > 0 ? { tile: claim.tile, handIds } : null;
 }
 
 export function declareMahjong(prev, playerId) {
@@ -361,7 +384,23 @@ export function declareMahjong(prev, playerId) {
   const p = state.players[playerId];
   if (!p) throw new Error('Player not found.');
 
-  const ids = completedHandsFor(p);
+  let ids    = completedHandsFor(p);
+  let called = null;
+
+  // Nothing in hand yet? Then this is a call on the discard that finishes it.
+  if (ids.length === 0) {
+    const call = mahjongClaimFor(state, playerId);
+    if (call) {
+      const idx = state.discards.findIndex(t => t.id === call.tile.id);
+      if (idx === -1) throw new Error('That tile is no longer on the pile.');
+      [called] = state.discards.splice(idx, 1);
+      p.hand   = [...p.hand, called];
+      p.justReceived     = [called.id];
+      p.justReceivedFrom = 'pile';
+      state.claimable    = null;
+      ids = call.handIds;
+    }
+  }
   if (ids.length === 0) throw new Error('Your tiles do not complete a hand on the card.');
 
   state.phase        = 'gameover';
@@ -369,7 +408,9 @@ export function declareMahjong(prev, playerId) {
   state.winningHands = ids;
   state.endReason    = 'mahjong';
   state.revealed     = true;
-  log(state, `${nameOf(state, playerId)} declared Mah Jong!`);
+  log(state, called
+    ? `${nameOf(state, playerId)} called the discard and declared Mah Jong!`
+    : `${nameOf(state, playerId)} declared Mah Jong!`);
   return state;
 }
 
