@@ -308,18 +308,25 @@ export function discardTile(prev, playerId, tileId) {
 }
 
 // ── Blank tile ───────────────────────────────────────────────
-// A blank can be traded for anything on the discard pile. It is available to
-// any player, but only between turns — while nobody is holding a drawn tile
-// they still have to discard — because it hands the turn to whoever sits after
-// the player who used it.
+// A blank can be traded for anything on the discard pile.
+//
+// Your own turn is yours to spend, so the trade goes at any point in it —
+// before you draw, or with the drawn tile still in your hand, which is when the
+// tile you need to finish is most likely to be sitting on the pile. Everyone
+// else has to wait for the gap between turns: taking the turn from a player who
+// still owes a discard would strand them holding fourteen tiles.
 
 export function useBlank(prev, playerId, blankTileId, targetTileId) {
   const state = clone(prev);
   if (state.phase !== 'playing') throw new Error('The game is not in play.');
-  if (state.turnStage !== 'draw') throw new Error('Wait until the current player has discarded.');
 
   const p = state.players[playerId];
   if (!p) throw new Error('Player not found.');
+
+  const isCurrent = state.playerOrder[state.currentPlayerIndex] === playerId;
+  if (!isCurrent && state.turnStage !== 'draw') {
+    throw new Error('Wait until the current player has discarded.');
+  }
 
   const bIdx = p.hand.findIndex(t => t.id === blankTileId && t.kind === TILE_KIND.BLANK);
   if (bIdx === -1) throw new Error('That is not a blank tile in your hand.');
@@ -335,13 +342,21 @@ export function useBlank(prev, playerId, blankTileId, targetTileId) {
   p.justReceived     = [taken.id];
   p.justReceivedFrom = 'pile';
 
-  // Play resumes with whoever sits after the player who used the blank.
-  const from = state.playerOrder.indexOf(playerId);
-  state.currentPlayerIndex = (from + 1) % state.playerOrder.length;
-  state.turnStage = 'draw';
+  // Trading a blank is not a turn. Spend it on your own and you still owe the
+  // move you owed before — the draw, or the discard you had got to. Spend it on
+  // someone else's and play resumes with whoever sits after you.
+  if (!isCurrent) {
+    const from = state.playerOrder.indexOf(playerId);
+    state.currentPlayerIndex = (from + 1) % state.playerOrder.length;
+    state.turnStage = 'draw';
+  }
 
-  const top = state.discards[state.discards.length - 1];
-  state.claimable = top && top.kind !== TILE_KIND.BLANK ? { tile: top, byId: null } : null;
+  if (state.turnStage === 'draw') {
+    const top = state.discards[state.discards.length - 1];
+    state.claimable = top && top.kind !== TILE_KIND.BLANK ? { tile: top, byId: null } : null;
+  } else {
+    state.claimable = null;   // mid-turn there is nothing on offer to claim
+  }
 
   log(state, `${nameOf(state, playerId)} traded a blank for a tile from the discard pile.`);
   return state;
