@@ -76,9 +76,12 @@ export default function MahjongBoard({ gameState, playerId, playerNames, actions
     pass: 'just received',
   }[me?.justReceivedFrom] ?? null;
 
+  // Your own turn: trade whenever, drawn tile in hand or not. Someone else's:
+  // only in the gap between turns, so the player in the middle of one isn't
+  // left holding a tile they never got to discard.
   const myBlank = me?.hand?.find(t => t.kind === TILE_KIND.BLANK);
-  const canUseBlank = !inCharleston && gameState.phase === 'playing'
-    && gameState.turnStage === 'draw' && !!myBlank
+  const canUseBlank = !inCharleston && gameState.phase === 'playing' && !!myBlank
+    && (isMyTurn || gameState.turnStage === 'draw')
     && gameState.discards.some(t => t.kind !== TILE_KIND.BLANK);
 
   // Keep the newest discard in view.
