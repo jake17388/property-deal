@@ -1,7 +1,22 @@
-import { useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import Card, { getColorConfig } from './Card.jsx';
 import { useDragSource } from '../hooks/useDragDrop.js';
 import { CARD_TYPE, SET_SIZE, RENT_VALUES } from '../game/cards.js';
+
+// Width of a full-size card, and the narrowest slice of a card we'll settle
+// for before giving up on fanning and letting the row scroll.
+const CARD_W   = 72;
+const MIN_STEP = 24;
+
+// How far apart to place the cards so the whole hand fits the space it has.
+// Cards overlap like a hand of real cards rather than scrolling: a scroller
+// and a drag would be fighting over the same swipe, and you'd have to go
+// looking for a card before you could play it.
+function fanStep(count, width) {
+  if (count < 2) return CARD_W;
+  if (!width) return CARD_W + 6;
+  return Math.min(CARD_W + 6, Math.max(MIN_STEP, (width - CARD_W) / (count - 1)));
+}
 
 // Your hand. Cards are played by dragging them onto the table — your bank,
 // one of your sets, open board space, or an opponent — and tapping one shows
@@ -17,10 +32,26 @@ export default function Hand({
   onEndTurn,
 }) {
   const [infoCard, setInfoCard] = useState(null);
+  const [rowWidth, setRowWidth] = useState(0);
+  const rowRef = useRef(null);
   const { beginDrag, dragCard } = useDragSource();
 
   const isMyTurn  = gameState.playerOrder[gameState.currentPlayerIndex] === playerId;
   const draggable = canPlay && !targetingMode;
+
+  useLayoutEffect(() => {
+    const el = rowRef.current;
+    if (!el) return undefined;
+    setRowWidth(el.clientWidth);
+    const ro = new ResizeObserver(([entry]) => setRowWidth(entry.contentRect.width));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+
+  const step = fanStep(cards.length, rowWidth);
+  // Only a hand too big to fan even at the narrowest slice falls back to
+  // scrolling, and then the swipe has to be shared with the drag again.
+  const scrolls = rowWidth > 0 && CARD_W + (cards.length - 1) * step > rowWidth + 1;
 
   return (
     <div style={{ background: '#fff', borderTop: '2px solid #e5e7eb' }}>
@@ -67,15 +98,14 @@ export default function Hand({
         )}
       </div>
 
-      {/* Cards row — swipe sideways to scroll, drag a card up to play it */}
-      <div data-hand style={{
+      {/* Cards row — fanned so the whole hand fits; drag one out to play it */}
+      <div ref={rowRef} data-hand style={{
         display: 'flex',
-        gap: 6,
-        overflowX: 'auto',
+        overflowX: scrolls ? 'auto' : 'hidden',
         padding: '10px 12px 14px',
         WebkitOverflowScrolling: 'touch',
       }}>
-        {cards.map(card => {
+        {cards.map((card, i) => {
           const beingDragged = dragCard?.id === card.id;
           return (
             <div
@@ -84,10 +114,16 @@ export default function Hand({
               onClick={draggable ? undefined : () => setInfoCard(card)}
               style={{
                 flexShrink: 0,
-                touchAction: draggable ? 'pan-x' : undefined,
+                // Each card sits `step` from the last, overlapping the one
+                // behind it. The right-hand card is whole; the rest show the
+                // colour band and the start of their name.
+                marginLeft: i === 0 ? 0 : step - CARD_W,
+                zIndex: i,
+                touchAction: draggable ? (scrolls ? 'pan-x' : 'none') : undefined,
                 cursor: draggable ? 'grab' : 'pointer',
                 opacity: beingDragged ? 0.25 : 1,
-                transition: 'opacity 0.12s',
+                transition: 'opacity 0.12s, margin-left 0.15s',
+                filter: i > 0 && step < CARD_W ? 'drop-shadow(-2px 0 2px rgba(0,0,0,0.10))' : undefined,
               }}
             >
               <Card card={card} dimmed={!isMyTurn} />

@@ -55,6 +55,10 @@ the places that will take the card light up as you move, and a label under the
 card says what dropping it there would do. Tap a card instead to read what it
 does.
 
+Your hand is fanned rather than scrolled, so every card is within reach without
+a swipe that would fight the drag: cards overlap as the hand grows, and you
+pick one up by the sliver of it you can see.
+
 | Card | Where you drop it |
 |---|---|
 | Money, or anything you'd rather bank | your bank pile |
