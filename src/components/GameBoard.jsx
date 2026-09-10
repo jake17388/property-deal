@@ -1,18 +1,27 @@
 import { useState, useEffect, useRef } from 'react';
 import PlayerBoard from './PlayerBoard.jsx';
 import Hand from './Hand.jsx';
-import Card from './Card.jsx';
-import { SET_SIZE } from '../game/cards.js';
+import Card, { getColorConfig } from './Card.jsx';
+import DragDropProvider from './DragDrop.jsx';
+import { CARD_TYPE, SET_SIZE } from '../game/cards.js';
+import {
+  bankValueOf, chargeableColors, completeColors, hasRoomFor, houseColors,
+  hotelColors, isPropertyCard, isSetComplete, labelOf, placementColors, rentFor,
+} from '../game/dropRules.js';
+
+const ACTIONS_PER_TURN = 3;
 
 export default function GameBoard({ gameState, playerId, playerNames, actions, resignedPlayer }) {
   const [targeting,        setTargeting]        = useState(null);
-  const [paymentModal,     setPaymentModal]      = useState(null);
-  const [selectedPayCards, setSelectedPayCards]  = useState([]);
-  const [moveModal,        setMoveModal]         = useState(null);
-  const [discardModal,     setDiscardModal]      = useState(false);
-  const [discardSelected,  setDiscardSelected]   = useState([]);
-  const [flyingCard,       setFlyingCard]        = useState(null);
-  const [showLog,          setShowLog]           = useState(false);
+  const [paymentModal,     setPaymentModal]     = useState(null);
+  const [selectedPayCards, setSelectedPayCards] = useState([]);
+  const [rentModal,        setRentModal]        = useState(null);
+  const [colorModal,       setColorModal]       = useState(null);
+  const [choiceModal,      setChoiceModal]      = useState(null);
+  const [discardModal,     setDiscardModal]     = useState(false);
+  const [discardSelected,  setDiscardSelected]  = useState([]);
+  const [showLog,          setShowLog]          = useState(false);
+  const [showSettings,     setShowSettings]     = useState(false);
   const boardRef = useRef(null);
 
   const me            = gameState.players[playerId];
@@ -20,20 +29,22 @@ export default function GameBoard({ gameState, playerId, playerNames, actions, r
   const currentTurnId = gameState.playerOrder[gameState.currentPlayerIndex];
   const isMyTurn      = currentTurnId === playerId;
   const pending       = gameState.pendingAction;
-  const [showSettings, setShowSettings] = useState(false);
+  const myProps       = me?.properties ?? {};
+  const actionsLeft   = ACTIONS_PER_TURN - gameState.actionsUsed;
 
   const iAmTarget = pending && (
     pending.fromId === playerId ||
     pending.remaining?.includes(playerId) ||
     pending.targetId === playerId
   );
-  const hasJSN = me?.hand?.some(c => c.action === 'justSayNo');
+  const hasJSN        = me?.hand?.some(c => c.action === 'justSayNo');
+  const hasDoubleRent = me?.hand?.some(c => c.action === 'doubleRent');
 
   // Auto end turn after 3 actions, but only once any pending responses are resolved
   const debugMode = !!gameState.debugMode;
 
   useEffect(() => {
-    if (!isMyTurn || gameState.actionsUsed < 3 || gameState.phase !== 'playing') return;
+    if (!isMyTurn || gameState.actionsUsed < ACTIONS_PER_TURN || gameState.phase !== 'playing') return;
     if (!debugMode && (me?.hand?.length ?? 0) > 7) {
       const timer = setTimeout(() => { setDiscardSelected([]); setDiscardModal(true); }, 600);
       return () => clearTimeout(timer);
@@ -51,12 +62,6 @@ export default function GameBoard({ gameState, playerId, playerNames, actions, r
     }
   }
 
-  function handleCardPlayed(card, sourceRect) {
-    if (!sourceRect) return;
-    setFlyingCard({ card, sourceRect });
-    setTimeout(() => setFlyingCard(null), 520);
-  }
-
   function pendingHighlightIds(pid) {
     if (!pending) return null;
     if (pending.type === 'slyDeal' && pending.fromId === pid)
@@ -69,56 +74,154 @@ export default function GameBoard({ gameState, playerId, playerNames, actions, r
   }
 
   function getCompleteSets(pid) {
-    let count = 0;
-    for (const [color, group] of Object.entries(gameState.players[pid]?.properties ?? {})) {
-      if (group.cards.length >= (SET_SIZE[color] ?? 99)) count++;
-    }
-    return count;
+    return completeColors(gameState.players[pid]?.properties).length;
   }
 
   function getName(pid) {
     return playerNames[pid] ?? pid?.slice(0, 6) ?? 'Player';
   }
 
-  // ── Targeting ─────────────────────────────────────────────
-  function enterTargeting(info) { setTargeting(info); }
-  function cancelTargeting()    { setTargeting(null); }
+  // ── Drag and drop ─────────────────────────────────────────
+  //
+  // Everything you can do with a card in hand is a drop: onto your bank, onto
+  // one of your sets, onto open board space, or onto an opponent (or one of
+  // their cards) for the cards you play at people. Anything that still needs a
+  // decision — which colour, which player, whether to double the rent — opens
+  // on release rather than before the drag.
 
-  function handlePropertyClick(ownerId, card) {
-    if (!targeting) return;
-    if (targeting.type === 'slyDeal') {
-      actions.playCard(targeting.card.id, 'action', {
-        targetPlayerId: ownerId,
-        targetCardId:   card.id,
-      });
-      setTargeting(null);
+  const canPlay = isMyTurn && !pending && gameState.phase === 'playing' && actionsLeft > 0;
+  const canMove = isMyTurn && (gameState.phase === 'playing' || gameState.phase === 'movingWildcard');
+
+  const dropCtx = {
+    canPlay,
+    canMove,
+    myProperties:    myProps,
+    myPropertyCount: Object.values(myProps).reduce((n, g) => n + g.cards.length, 0),
+    opponentCount:   opponents.length,
+  };
+
+  function play(card, destination, opts = {}) {
+    actions.playCard(card.id, destination, opts);
+  }
+
+  function openRent(card, { color = null, targetPlayerId = null } = {}) {
+    setRentModal({ card, color, targetPlayerId });
+  }
+
+  function handleDrop(card, zone, source) {
+    if (!zone) return;
+
+    // A wildcard being dragged between your own sets
+    if (source?.from === 'board') {
+      if (zone.kind === 'mySet') {
+        actions.moveWildcard(card.id, zone.color);
+      } else if (zone.kind === 'myBoard') {
+        const colors = (card.colors ?? []).filter(c => c !== source.color && !isSetComplete(c, myProps[c]));
+        if (colors.length === 1) actions.moveWildcard(card.id, colors[0]);
+        else setColorModal({ card, colors, mode: 'move', title: 'Move wildcard' });
+      }
       return;
     }
-    if (targeting.type === 'forceDeal' && targeting.step !== 'pickOwn') {
-      setTargeting(prev => ({
-        ...prev,
-        step:           'pickOwn',
-        targetPlayerId: ownerId,
-        targetCardId:   card.id,
-      }));
+
+    switch (zone.kind) {
+      case 'bank':
+        play(card, 'bank');
+        return;
+
+      case 'mySet':
+        if (isPropertyCard(card))              play(card, 'property', { targetColor: zone.color });
+        else if (card.type === CARD_TYPE.RENT) openRent(card, { color: zone.color });
+        else                                   play(card, 'action', { targetColor: zone.color });
+        return;
+
+      case 'myBoard': {
+        if (card.type === CARD_TYPE.MONEY)    { play(card, 'bank'); return; }
+        if (card.type === CARD_TYPE.PROPERTY) { play(card, 'property', { targetColor: card.color }); return; }
+        if (card.type === CARD_TYPE.WILDCARD) {
+          const colors = placementColors(card).filter(c => hasRoomFor(c, myProps[c]));
+          if (colors.length === 1) play(card, 'property', { targetColor: colors[0] });
+          else setColorModal({ card, colors, mode: 'play', title: 'Which colour?' });
+          return;
+        }
+        if (card.type === CARD_TYPE.RENT) { openRent(card); return; }
+
+        if (card.action === 'passGo' || card.action === 'birthday') { play(card, 'action'); return; }
+
+        if (card.action === 'debtCollector') {
+          if (opponents.length === 1) { play(card, 'action', { targetPlayerId: opponents[0] }); return; }
+          setChoiceModal({
+            title: 'Debt Collector',
+            subtitle: 'Who owes you $5M?',
+            options: opponents.map(pid => ({
+              key: pid, label: getName(pid), color: '#dc2626',
+              onPress: () => play(card, 'action', { targetPlayerId: pid }),
+            })),
+          });
+          return;
+        }
+
+        if (card.action === 'house' || card.action === 'hotel') {
+          const eligible = card.action === 'house' ? houseColors(myProps) : hotelColors(myProps);
+          if (eligible.length === 1) { play(card, 'action', { targetColor: eligible[0] }); return; }
+          setChoiceModal({
+            title: card.action === 'house' ? '🏠 Build a house' : '🏨 Build a hotel',
+            subtitle: 'Which set?',
+            options: eligible.map(c => ({
+              key: c, label: labelOf(c), color: getColorConfig(c).bg,
+              onPress: () => play(card, 'action', { targetColor: c }),
+            })),
+          });
+        }
+        return;
+      }
+
+      case 'opponent':
+        if (card.type === CARD_TYPE.RENT) { openRent(card, { targetPlayerId: zone.playerId }); return; }
+        if (card.action === 'debtCollector') { play(card, 'action', { targetPlayerId: zone.playerId }); return; }
+        if (card.action === 'dealBreaker') {
+          const sets = completeColors(gameState.players[zone.playerId]?.properties);
+          if (sets.length === 1) { play(card, 'action', { targetPlayerId: zone.playerId, targetColor: sets[0] }); return; }
+          setChoiceModal({
+            title: 'Deal Breaker',
+            subtitle: `Which of ${getName(zone.playerId)}'s sets?`,
+            options: sets.map(c => ({
+              key: c, label: labelOf(c), color: getColorConfig(c).bg,
+              onPress: () => play(card, 'action', { targetPlayerId: zone.playerId, targetColor: c }),
+            })),
+          });
+        }
+        return;
+
+      case 'oppCard':
+        if (card.action === 'slyDeal') {
+          play(card, 'action', { targetPlayerId: zone.playerId, targetCardId: zone.cardId });
+        } else if (card.action === 'forceDeal') {
+          // Second step stays a tap: pick which of your own properties to give.
+          setTargeting({
+            card, type: 'forceDeal', step: 'pickOwn',
+            targetPlayerId: zone.playerId, targetCardId: zone.cardId,
+          });
+        } else if (card.action === 'dealBreaker') {
+          play(card, 'action', { targetPlayerId: zone.playerId, targetColor: zone.color });
+        }
+        return;
+
+      case 'oppSet':
+        if (card.action === 'dealBreaker') {
+          play(card, 'action', { targetPlayerId: zone.playerId, targetColor: zone.color });
+        }
+        return;
+
+      default:
     }
   }
 
   function handleOwnPropertyClick(card) {
-    if (!targeting || targeting.type !== 'forceDeal' || targeting.step !== 'pickOwn') return;
+    if (!targeting || targeting.step !== 'pickOwn') return;
     actions.playCard(targeting.card.id, 'action', {
       targetPlayerId: targeting.targetPlayerId,
       targetCardId:   targeting.targetCardId,
       offeredCardId:  card.id,
-    });
-    setTargeting(null);
-  }
-
-  function handleGroupClick(ownerId, color) {
-    if (!targeting || targeting.type !== 'dealBreaker') return;
-    actions.playCard(targeting.card.id, 'action', {
-      targetPlayerId: ownerId,
-      targetColor:    color,
     });
     setTargeting(null);
   }
@@ -143,30 +246,10 @@ export default function GameBoard({ gameState, playerId, playerNames, actions, r
     setSelectedPayCards([]);
   }
 
-  const selectedPayTotal = selectedPayCards.reduce((s, c) => s + (c.value ?? c.bankValue ?? 0), 0);
-
-  // ── Wildcard move ─────────────────────────────────────────
-  function handleMoveWildcard(card, fromColor) {
-    // Two-color wilds have exactly one other destination — skip the modal
-    const others = card.colors.filter(c => c !== fromColor);
-    if (others.length === 1) {
-      actions.moveWildcard(card.id, others[0]);
-      return;
-    }
-    setMoveModal({ card, fromColor });
-  }
-
-  // ── Targeting banner text ─────────────────────────────────
-  function targetingBannerText() {
-    if (!targeting) return '';
-    if (targeting.type === 'slyDeal')     return 'Tap any opponent property to steal it';
-    if (targeting.type === 'dealBreaker') return 'Tap a complete set to steal it';
-    if (targeting.type === 'forceDeal' && targeting.step !== 'pickOwn') return "Tap an opponent's property to take";
-    if (targeting.type === 'forceDeal' && targeting.step === 'pickOwn') return 'Now tap one of YOUR properties to give';
-    return '';
-  }
+  const selectedPayTotal = selectedPayCards.reduce((s, c) => s + bankValueOf(c), 0);
 
   return (
+    <DragDropProvider onDrop={handleDrop} scrollRef={boardRef}>
     <div style={{
       height: '100%',
       background: '#f3f4f6',
@@ -180,54 +263,54 @@ export default function GameBoard({ gameState, playerId, playerNames, actions, r
     }}>
 
       {/* ── Top bar ── */}
-<div style={{
-  background: '#fff',
-  borderBottom: '1px solid #e5e7eb',
-  padding: '10px 16px',
-  display: 'flex',
-  justifyContent: 'space-between',
-  alignItems: 'center',
-  flexShrink: 0,
-  zIndex: 10,
-}}>
-  <span style={{ fontWeight: 800, fontSize: 16, color: '#111827' }}>
-    🏠 Property Deal
-  </span>
-  <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-    <div style={{
-      fontSize: 12, fontWeight: 600,
-      background: isMyTurn ? '#dcfce7' : '#f3f4f6',
-      color: isMyTurn ? '#166534' : '#6b7280',
-      borderRadius: 20, padding: '4px 12px',
-      border: `1px solid ${isMyTurn ? '#86efac' : '#e5e7eb'}`,
-    }}>
-      {isMyTurn
-        ? `✦ Your Turn (${3 - gameState.actionsUsed}/3)`
-        : `${getName(currentTurnId)}'s turn`}
-    </div>
-    <button
-      onClick={() => setShowLog(v => !v)}
-      style={{
-        background: showLog ? '#ede9fe' : '#f3f4f6',
-        border: showLog ? '1px solid #c4b5fd' : 'none',
-        borderRadius: 10,
-        width: 36, height: 36, fontSize: 18, cursor: 'pointer',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-      }}
-      title="Game log"
-    >📋</button>
-    <button
-      onClick={() => setShowSettings(true)}
-      style={{
-        background: '#f3f4f6', border: 'none', borderRadius: 10,
-        width: 36, height: 36, fontSize: 18, cursor: 'pointer',
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-      }}
-    >⚙️</button>
-  </div>
-</div>
+      <div style={{
+        background: '#fff',
+        borderBottom: '1px solid #e5e7eb',
+        padding: '10px 16px',
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        flexShrink: 0,
+        zIndex: 10,
+      }}>
+        <span style={{ fontWeight: 800, fontSize: 16, color: '#111827' }}>
+          🏠 Property Deal
+        </span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{
+            fontSize: 12, fontWeight: 600,
+            background: isMyTurn ? '#dcfce7' : '#f3f4f6',
+            color: isMyTurn ? '#166534' : '#6b7280',
+            borderRadius: 20, padding: '4px 12px',
+            border: `1px solid ${isMyTurn ? '#86efac' : '#e5e7eb'}`,
+          }}>
+            {isMyTurn
+              ? `✦ Your Turn (${actionsLeft}/3)`
+              : `${getName(currentTurnId)}'s turn`}
+          </div>
+          <button
+            onClick={() => setShowLog(v => !v)}
+            style={{
+              background: showLog ? '#ede9fe' : '#f3f4f6',
+              border: showLog ? '1px solid #c4b5fd' : 'none',
+              borderRadius: 10,
+              width: 36, height: 36, fontSize: 18, cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}
+            title="Game log"
+          >📋</button>
+          <button
+            onClick={() => setShowSettings(true)}
+            style={{
+              background: '#f3f4f6', border: 'none', borderRadius: 10,
+              width: 36, height: 36, fontSize: 18, cursor: 'pointer',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+            }}
+          >⚙️</button>
+        </div>
+      </div>
 
-{/* ── Resignation toast ── */}
+      {/* ── Resignation toast ── */}
       {resignedPlayer && (
         <div style={{
           background: '#fef2f2',
@@ -242,8 +325,8 @@ export default function GameBoard({ gameState, playerId, playerNames, actions, r
           {resignedPlayer} has resigned from the game
         </div>
       )}
-      
-      {/* ── Targeting banner ── */}
+
+      {/* ── Force Deal second step ── */}
       {targeting && (
         <div style={{
           background: '#fef3c7',
@@ -256,10 +339,10 @@ export default function GameBoard({ gameState, playerId, playerNames, actions, r
           zIndex: 9,
         }}>
           <span style={{ fontSize: 13, fontWeight: 600, color: '#92400e' }}>
-            👆 {targetingBannerText()}
+            👆 Now tap one of YOUR properties to give
           </span>
           <button
-            onClick={cancelTargeting}
+            onClick={() => setTargeting(null)}
             style={{
               background: 'transparent', color: '#92400e',
               border: '1px solid #f59e0b', borderRadius: 20,
@@ -276,7 +359,7 @@ export default function GameBoard({ gameState, playerId, playerNames, actions, r
           background: '#fef3c7', borderBottom: '2px solid #f59e0b',
           padding: '10px 16px', fontSize: 13, fontWeight: 600, color: '#92400e',
         }}>
-          ⚠️ Your <strong>{pending.color}</strong> set is overfull — tap <em>move</em> on a wildcard to relocate it.
+          ⚠️ Your <strong>{labelOf(pending.color)}</strong> set is overfull — drag a wildcard (⇄) into another set.
         </div>
       )}
 
@@ -317,13 +400,12 @@ export default function GameBoard({ gameState, playerId, playerNames, actions, r
               isCurrentPlayer={currentTurnId === oid}
               isYou={false}
               completeSets={getCompleteSets(oid)}
-              targetingMode={!!targeting && targeting.step !== 'pickOwn'}
-              targetingType={targeting?.type}
-              onPropertyClick={handlePropertyClick}
-              onGroupClick={handleGroupClick}
+              targetingMode={false}
+              targetingType={null}
+              onPropertyClick={null}
               isMyTurn={false}
-              onMoveWildcard={null}
               highlightCardIds={pendingHighlightIds(oid)}
+              dropCtx={dropCtx}
             />
           </div>
         ))}
@@ -345,10 +427,9 @@ export default function GameBoard({ gameState, playerId, playerNames, actions, r
           targetingMode={targeting?.step === 'pickOwn'}
           targetingType={targeting?.step === 'pickOwn' ? 'forceDealOwn' : null}
           onPropertyClick={(ownerId, card) => handleOwnPropertyClick(card)}
-          onGroupClick={() => {}}
           isMyTurn={isMyTurn}
-          onMoveWildcard={handleMoveWildcard}
           highlightCardIds={pendingHighlightIds(playerId)}
+          dropCtx={dropCtx}
         />
       </div>
 
@@ -359,14 +440,58 @@ export default function GameBoard({ gameState, playerId, playerNames, actions, r
           gameState={gameState}
           playerId={playerId}
           actions={actions}
-          actionsUsed={gameState.actionsUsed}
-          onEnterTargeting={enterTargeting}
-          onCancelTargeting={cancelTargeting}
+          actionsLeft={actionsLeft}
+          canPlay={canPlay}
           targetingMode={!!targeting}
           onEndTurn={handleEndTurn}
-          onCardPlayed={handleCardPlayed}
         />
       </div>
+
+      {/* ── Rent modal ── */}
+      {rentModal && (
+        <RentModal
+          card={rentModal.card}
+          presetColor={rentModal.color}
+          presetTarget={rentModal.targetPlayerId}
+          myProperties={myProps}
+          opponents={opponents}
+          getName={getName}
+          canDouble={hasDoubleRent && actionsLeft > 1}
+          onCharge={(color, targetPlayerId, doubleRent) => {
+            play(rentModal.card, 'action', { rentColor: color, targetPlayerId, doubleRent });
+            setRentModal(null);
+          }}
+          onBank={() => { play(rentModal.card, 'bank'); setRentModal(null); }}
+          onClose={() => setRentModal(null)}
+        />
+      )}
+
+      {/* ── Colour picker (wildcards) ── */}
+      {colorModal && (
+        <ColorModal
+          card={colorModal.card}
+          colors={colorModal.colors}
+          title={colorModal.title}
+          myProperties={myProps}
+          onPick={color => {
+            if (colorModal.mode === 'move') actions.moveWildcard(colorModal.card.id, color);
+            else play(colorModal.card, 'property', { targetColor: color });
+            setColorModal(null);
+          }}
+          onClose={() => setColorModal(null)}
+        />
+      )}
+
+      {/* ── Generic choice sheet ── */}
+      {choiceModal && (
+        <ChoiceModal
+          title={choiceModal.title}
+          subtitle={choiceModal.subtitle}
+          options={choiceModal.options}
+          onPick={opt => { opt.onPress(); setChoiceModal(null); }}
+          onClose={() => setChoiceModal(null)}
+        />
+      )}
 
       {/* ── Payment modal ── */}
       {paymentModal && (
@@ -385,65 +510,56 @@ export default function GameBoard({ gameState, playerId, playerNames, actions, r
         />
       )}
 
-{/* ── Settings Modal ── */}
-{showSettings && (
-  <div style={{
-    position: 'fixed', inset: 0, zIndex: 100,
-    background: 'rgba(0,0,0,0.5)',
-    display: 'flex', alignItems: 'flex-end',
-  }}>
-    <div style={{
-      background: '#fff',
-      borderRadius: '16px 16px 0 0',
-      width: '100%',
-      maxWidth: 480,
-      margin: '0 auto',
-      padding: '24px 20px 40px',
-    }}>
-      <div style={{ fontSize: 18, fontWeight: 700, color: '#111827', marginBottom: 4 }}>
-        ⚙️ Settings
-      </div>
-      <div style={{ fontSize: 13, color: '#9ca3af', marginBottom: 24 }}>
-        Game options
-      </div>
+      {/* ── Settings Modal ── */}
+      {showSettings && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 100,
+          background: 'rgba(0,0,0,0.5)',
+          display: 'flex', alignItems: 'flex-end',
+        }}>
+          <div style={{
+            background: '#fff',
+            borderRadius: '16px 16px 0 0',
+            width: '100%',
+            maxWidth: 480,
+            margin: '0 auto',
+            padding: '24px 20px 40px',
+          }}>
+            <div style={{ fontSize: 18, fontWeight: 700, color: '#111827', marginBottom: 4 }}>
+              ⚙️ Settings
+            </div>
+            <div style={{ fontSize: 13, color: '#9ca3af', marginBottom: 24 }}>
+              Game options
+            </div>
 
-      <button
-  onClick={() => {
-    if (window.confirm('Are you sure you want to resign?')) {
-      actions.resignGame();
-      setShowSettings(false);
-    }
-  }}
-  style={{
-    width: '100%', background: '#fef2f2', color: '#dc2626',
-    border: '2px solid #fca5a5', borderRadius: 14, padding: '16px',
-    fontSize: 16, fontWeight: 700, cursor: 'pointer', marginBottom: 12,
-  }}
->
-  🏳️ Resign Game
-</button>
+            <button
+              onClick={() => {
+                if (window.confirm('Are you sure you want to resign?')) {
+                  actions.resignGame();
+                  setShowSettings(false);
+                }
+              }}
+              style={{
+                width: '100%', background: '#fef2f2', color: '#dc2626',
+                border: '2px solid #fca5a5', borderRadius: 14, padding: '16px',
+                fontSize: 16, fontWeight: 700, cursor: 'pointer', marginBottom: 12,
+              }}
+            >
+              🏳️ Resign Game
+            </button>
 
-      <button
-        onClick={() => setShowSettings(false)}
-        style={{
-          width: '100%', background: '#f3f4f6', color: '#6b7280',
-          border: 'none', borderRadius: 14, padding: '16px',
-          fontSize: 16, cursor: 'pointer',
-        }}
-      >
-        Cancel
-      </button>
-    </div>
-  </div>
-)}
-
-      {/* ── Flying card animation ── */}
-      {flyingCard && (
-        <FlyingCard
-          card={flyingCard.card}
-          sourceRect={flyingCard.sourceRect}
-          boardRef={boardRef}
-        />
+            <button
+              onClick={() => setShowSettings(false)}
+              style={{
+                width: '100%', background: '#f3f4f6', color: '#6b7280',
+                border: 'none', borderRadius: 14, padding: '16px',
+                fontSize: 16, cursor: 'pointer',
+              }}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
       )}
 
       {/* ── Discard Modal ── */}
@@ -463,70 +579,281 @@ export default function GameBoard({ gameState, playerId, playerNames, actions, r
         />
       )}
 
-      {/* ── Move Wildcard Modal ── */}
-      {moveModal && (
-        <div style={{
-          position: 'fixed', inset: 0, zIndex: 100,
-          background: 'rgba(0,0,0,0.5)',
-          display: 'flex', alignItems: 'flex-end',
-        }}>
-          <div style={{
-            background: '#fff',
-            borderRadius: '16px 16px 0 0',
-            width: '100%',
-            maxWidth: 480,
-            margin: '0 auto',
-            padding: '20px 16px 32px',
-          }}>
-            <div style={{ fontSize: 16, fontWeight: 700, color: '#111827', marginBottom: 4 }}>
-              Move Wildcard
-            </div>
-            <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 16 }}>
-              Currently in <strong>{moveModal.fromColor}</strong>. Pick a new color group:
-            </div>
-            <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', marginBottom: 20 }}>
-              {moveModal.card.colors
-                .filter(c => c !== moveModal.fromColor)
-                .map(c => (
-                  <button
-                    key={c}
-                    onClick={() => {
-                      actions.moveWildcard(moveModal.card.id, c);
-                      setMoveModal(null);
-                    }}
-                    style={{
-                      background: '#f0f9ff',
-                      color: '#0369a1',
-                      border: '2px solid #bae6fd',
-                      borderRadius: 10,
-                      padding: '10px 18px',
-                      fontSize: 13,
-                      fontWeight: 700,
-                      cursor: 'pointer',
-                    }}
-                  >
-                    → {c}
-                  </button>
-                ))
-              }
-            </div>
-            <button
-              onClick={() => setMoveModal(null)}
-              style={{
-                width: '100%', background: '#f3f4f6', color: '#6b7280',
-                border: 'none', borderRadius: 12, padding: '12px',
-                fontSize: 14, cursor: 'pointer',
-              }}
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
-      )}
-
       {/* ── Game Log Panel ── */}
       <GameLog entries={gameState.log ?? []} open={showLog} onClose={() => setShowLog(false)} />
     </div>
+    </DragDropProvider>
+  );
+}
+
+// ── Bottom sheet shell ────────────────────────────────────────
+
+function Sheet({ children, onClose }) {
+  return (
+    <div
+      onClick={onClose}
+      style={{
+        position: 'fixed', inset: 0, zIndex: 100,
+        background: 'rgba(0,0,0,0.5)',
+        display: 'flex', alignItems: 'flex-end',
+      }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          background: '#fff',
+          borderRadius: '16px 16px 0 0',
+          width: '100%', maxWidth: 480,
+          margin: '0 auto',
+          padding: '20px 16px 32px',
+          maxHeight: '80vh', overflowY: 'auto',
+        }}
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function SheetTitle({ title, subtitle }) {
+  return (
+    <>
+      <div style={{ fontSize: 16, fontWeight: 700, color: '#111827', marginBottom: 2 }}>{title}</div>
+      {subtitle && <div style={{ fontSize: 13, color: '#6b7280', marginBottom: 14 }}>{subtitle}</div>}
+    </>
+  );
+}
+
+function CancelButton({ onClick, label = 'Cancel' }) {
+  return (
+    <button
+      onClick={onClick}
+      style={{
+        width: '100%', background: '#f3f4f6', color: '#6b7280',
+        border: 'none', borderRadius: 12, padding: '12px',
+        fontSize: 14, cursor: 'pointer', marginTop: 10,
+      }}
+    >
+      {label}
+    </button>
+  );
+}
+
+// ── Rent modal ────────────────────────────────────────────────
+//
+// Opens when a rent card is dropped on the table: which colour to charge, who
+// pays, whether to spend a second action doubling it — or bank it after all.
+
+function RentModal({
+  card, presetColor, presetTarget, myProperties, opponents, getName, canDouble,
+  onCharge, onBank, onClose,
+}) {
+  const available = chargeableColors(card, myProperties);
+  const [color,  setColor]  = useState(
+    presetColor && available.includes(presetColor) ? presetColor
+      : available.length === 1 ? available[0] : null
+  );
+  const [target, setTarget] = useState(card.allPlayers ? null : presetTarget ?? (opponents.length === 1 ? opponents[0] : null));
+  const [double, setDouble] = useState(false);
+
+  const base   = color ? rentFor(color, myProperties[color]) : 0;
+  const amount = base * (double ? 2 : 1);
+  const ready  = !!color && (card.allPlayers || !!target);
+
+  return (
+    <Sheet onClose={onClose}>
+      <SheetTitle
+        title="Charge rent"
+        subtitle={card.name}
+      />
+
+      {available.length === 0 ? (
+        <div style={{
+          fontSize: 13, color: '#b45309', background: '#fffbeb',
+          border: '1px solid #fcd34d', borderRadius: 10, padding: '10px 12px', marginBottom: 12,
+        }}>
+          You have no properties in this card's colours, so there's no rent to charge — bank it instead.
+        </div>
+      ) : (
+        <>
+          <div style={{ fontSize: 11, color: '#9ca3af', fontWeight: 700, marginBottom: 6, letterSpacing: '0.06em' }}>
+            WHICH COLOUR?
+          </div>
+          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14 }}>
+            {available.map(c => {
+              const cfg = getColorConfig(c);
+              const on  = color === c;
+              return (
+                <button
+                  key={c}
+                  onClick={() => setColor(c)}
+                  style={{
+                    background: on ? cfg.bg : cfg.light,
+                    color: on ? '#fff' : cfg.bg,
+                    border: `2px solid ${cfg.bg}`,
+                    borderRadius: 12, padding: '8px 12px',
+                    fontSize: 13, fontWeight: 700, cursor: 'pointer',
+                    display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 1,
+                  }}
+                >
+                  <span>{cfg.label}</span>
+                  <span style={{ fontSize: 11, fontWeight: 600, opacity: 0.85 }}>
+                    ${rentFor(c, myProperties[c])}M · {myProperties[c].cards.length}/{SET_SIZE[c] ?? '?'}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {!card.allPlayers && (
+            <>
+              <div style={{ fontSize: 11, color: '#9ca3af', fontWeight: 700, marginBottom: 6, letterSpacing: '0.06em' }}>
+                WHO PAYS?
+              </div>
+              <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14 }}>
+                {opponents.map(pid => (
+                  <button
+                    key={pid}
+                    onClick={() => setTarget(pid)}
+                    style={{
+                      background: target === pid ? '#be185d' : '#fdf2f8',
+                      color: target === pid ? '#fff' : '#be185d',
+                      border: '2px solid #be185d',
+                      borderRadius: 12, padding: '8px 14px',
+                      fontSize: 13, fontWeight: 700, cursor: 'pointer',
+                    }}
+                  >
+                    {getName(pid)}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+
+          {card.allPlayers && (
+            <div style={{ fontSize: 12, color: '#6b7280', marginBottom: 14 }}>
+              Every other player pays.
+            </div>
+          )}
+
+          {canDouble && (
+            <button
+              onClick={() => setDouble(v => !v)}
+              style={{
+                width: '100%', textAlign: 'left',
+                background: double ? '#fdf2f8' : '#f9fafb',
+                border: `2px solid ${double ? '#9d174d' : '#e5e7eb'}`,
+                borderRadius: 12, padding: '10px 12px', marginBottom: 14,
+                cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 10,
+              }}
+            >
+              <span style={{
+                width: 22, height: 22, borderRadius: 6, flexShrink: 0,
+                background: double ? '#9d174d' : '#fff',
+                border: `2px solid ${double ? '#9d174d' : '#d1d5db'}`,
+                color: '#fff', fontSize: 13, fontWeight: 900,
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+              }}>{double ? '✓' : ''}</span>
+              <span>
+                <span style={{ display: 'block', fontSize: 13, fontWeight: 700, color: '#9d174d' }}>
+                  ×2 Double the Rent
+                </span>
+                <span style={{ display: 'block', fontSize: 11, color: '#6b7280' }}>
+                  Plays your Double the Rent card too — costs a second action
+                </span>
+              </span>
+            </button>
+          )}
+
+          <button
+            onClick={() => onCharge(color, card.allPlayers ? null : target, double)}
+            disabled={!ready}
+            style={{
+              width: '100%',
+              background: ready ? (double ? '#9d174d' : '#be185d') : '#d1d5db',
+              color: '#fff', border: 'none', borderRadius: 12, padding: '14px',
+              fontSize: 14, fontWeight: 700, cursor: ready ? 'pointer' : 'not-allowed',
+            }}
+          >
+            {ready
+              ? `Charge $${amount}M${double ? ' (doubled)' : ''}`
+              : !color ? 'Pick a colour' : 'Pick who pays'}
+          </button>
+        </>
+      )}
+
+      <button
+        onClick={onBank}
+        style={{
+          width: '100%', background: '#f0fdf4', color: '#15803d',
+          border: '2px solid #86efac', borderRadius: 12, padding: '12px',
+          fontSize: 14, fontWeight: 700, cursor: 'pointer', marginTop: 10,
+        }}
+      >
+        Bank it for ${bankValueOf(card)}M
+      </button>
+      <CancelButton onClick={onClose} />
+    </Sheet>
+  );
+}
+
+// ── Colour picker ─────────────────────────────────────────────
+
+function ColorModal({ card, colors, title, myProperties, onPick, onClose }) {
+  return (
+    <Sheet onClose={onClose}>
+      <SheetTitle title={title} subtitle={card.name} />
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        {colors.map(c => {
+          const cfg   = getColorConfig(c);
+          const group = myProperties[c];
+          return (
+            <button
+              key={c}
+              onClick={() => onPick(c)}
+              style={{
+                background: cfg.light, color: cfg.bg,
+                border: `2px solid ${cfg.bg}`, borderRadius: 12,
+                padding: '10px 14px', fontSize: 13, fontWeight: 700, cursor: 'pointer',
+                display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 1,
+              }}
+            >
+              <span>{cfg.label}</span>
+              <span style={{ fontSize: 11, fontWeight: 600, opacity: 0.8 }}>
+                {(group?.cards.length ?? 0)}/{SET_SIZE[c] ?? '?'}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      <CancelButton onClick={onClose} />
+    </Sheet>
+  );
+}
+
+// ── Generic choice sheet ──────────────────────────────────────
+
+function ChoiceModal({ title, subtitle, options, onPick, onClose }) {
+  return (
+    <Sheet onClose={onClose}>
+      <SheetTitle title={title} subtitle={subtitle} />
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        {options.map(opt => (
+          <button
+            key={opt.key}
+            onClick={() => onPick(opt)}
+            style={{
+              background: opt.color, color: '#fff', border: 'none',
+              borderRadius: 12, padding: '12px 16px',
+              fontSize: 14, fontWeight: 700, cursor: 'pointer',
+            }}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
+      <CancelButton onClick={onClose} />
+    </Sheet>
   );
 }
 
@@ -555,9 +882,7 @@ function PendingBanner({ pending, playerId, gameState, getName, hasJSN, iAmTarge
   // Use falsy checks — justSayNoBy is undefined (not null) when no JSN has been played.
   const lastJSNWasInitiator = !!jsnBy && jsnBy === initiatorId;
 
-  // Show the target's response UI when: no JSN in flight, OR the initiator just counter-JSN'd them.
   const showTargetButtons    = iAmTarget   && (!jsnBy || lastJSNWasInitiator);
-  // Show the initiator's response UI when: a target-side JSN is active (not a counter).
   const showInitiatorButtons = isInitiator && !!jsnBy && !lastJSNWasInitiator;
 
   const typeLabels = {
@@ -597,7 +922,7 @@ function PendingBanner({ pending, playerId, gameState, getName, hasJSN, iAmTarge
         </div>
         <div style={{ fontSize: 11, color: '#b45309' }}>
           {pending.amount && `$${pending.amount}M owed`}
-          {pending.targetColor && ` · ${pending.targetColor} set targeted`}
+          {pending.targetColor && ` · ${labelOf(pending.targetColor)} set targeted`}
           {pending.remaining?.length > 0 && ` · ${pending.remaining.length} player(s) left to pay`}
           {dealDetail && dealDetail}
         </div>
@@ -685,7 +1010,7 @@ function getLockedCardIds(player, selectedCardIds) {
 function PaymentModal({ amount, player, selectedCards, selectedTotal, onToggle, onSubmit, onJSN }) {
   const buildingCards = Object.values(player.properties).flatMap(g => [g.houseCard, g.hotelCard].filter(Boolean));
   const allCards   = [...player.bank, ...Object.values(player.properties).flatMap(g => g.cards), ...buildingCards];
-  const totalAssets = allCards.reduce((sum, c) => sum + (c.value ?? c.bankValue ?? 0), 0);
+  const totalAssets = allCards.reduce((sum, c) => sum + bankValueOf(c), 0);
   const insolvent  = totalAssets < amount;
   const canPay     = selectedTotal >= amount;
   const overpaid   = selectedTotal > amount;
@@ -870,42 +1195,6 @@ function PaymentModal({ amount, player, selectedCards, selectedTotal, onToggle, 
           )}
         </div>
       </div>
-    </div>
-  );
-}
-
-// ── Flying Card ───────────────────────────────────────────────
-
-function FlyingCard({ card, sourceRect, boardRef }) {
-  const [animating, setAnimating] = useState(false);
-
-  useEffect(() => {
-    const id = setTimeout(() => setAnimating(true), 16);
-    return () => clearTimeout(id);
-  }, []);
-
-  const boardRect = boardRef.current?.getBoundingClientRect();
-  const destX = (boardRect ? boardRect.left + boardRect.width / 2 : window.innerWidth / 2) - 36;
-  const destY = (boardRect ? boardRect.top + boardRect.height * 0.55 : window.innerHeight * 0.4) - 50;
-
-  const dx = destX - sourceRect.left;
-  const dy = destY - sourceRect.top;
-
-  return (
-    <div style={{
-      position: 'fixed',
-      left: sourceRect.left,
-      top: sourceRect.top,
-      transform: animating ? `translate(${dx}px, ${dy}px) scale(0.8)` : 'translate(0,0) scale(1)',
-      opacity: animating ? 0 : 1,
-      transition: animating
-        ? 'transform 0.45s cubic-bezier(0.4,0,0.2,1), opacity 0.35s ease 0.12s'
-        : 'none',
-      pointerEvents: 'none',
-      zIndex: 200,
-      willChange: 'transform, opacity',
-    }}>
-      <Card card={card} />
     </div>
   );
 }

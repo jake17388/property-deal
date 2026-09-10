@@ -1,383 +1,99 @@
-import { useState, useRef } from 'react';
+import { useState } from 'react';
 import Card, { getColorConfig } from './Card.jsx';
-import { CARD_TYPE, SET_SIZE, RENT_VALUES, BUILDING_BONUS } from '../game/cards.js';
+import { useDragSource } from '../hooks/useDragDrop.js';
+import { CARD_TYPE, SET_SIZE, RENT_VALUES } from '../game/cards.js';
 
+// Your hand. Cards are played by dragging them onto the table — your bank,
+// one of your sets, open board space, or an opponent — and tapping one shows
+// what it does.
 export default function Hand({
   cards,
   gameState,
   playerId,
   actions,
-  actionsUsed,
-  onEnterTargeting,
-  onCancelTargeting,
+  actionsLeft,
+  canPlay,
   targetingMode,
   onEndTurn,
-  onCardPlayed,
 }) {
-  const [selected,  setSelected]  = useState(null);
-  const [infoCard,  setInfoCard]  = useState(null);
-  const cardRefs       = useRef({});
-  const longPressTimer = useRef(null);
-  const longPressFired = useRef(false);
+  const [infoCard, setInfoCard] = useState(null);
+  const { beginDrag, dragCard } = useDragSource();
 
-  const isMyTurn    = gameState.playerOrder[gameState.currentPlayerIndex] === playerId;
-  const actionsLeft = 3 - actionsUsed;
-  const opponents   = gameState.playerOrder.filter(id => id !== playerId);
-  const hasDoubleRent = cards.some(c => c.action === 'doubleRent');
-  const myProps     = gameState.players[playerId]?.properties ?? {};
-
-  function selectCard(card) {
-    if (longPressFired.current) { longPressFired.current = false; return; }
-    if (!isMyTurn || targetingMode) return;
-    setSelected(prev => prev?.id === card.id ? null : card);
-  }
-
-  function handlePointerDown(card) {
-    longPressFired.current = false;
-    longPressTimer.current = setTimeout(() => {
-      longPressFired.current = true;
-      setInfoCard(card);
-    }, 480);
-  }
-
-  function handlePointerUp() {
-    clearTimeout(longPressTimer.current);
-  }
-
-  function clearSelected() {
-    setSelected(null);
-  }
-
-  function firePlayAnimation() {
-    if (!selected || !onCardPlayed) return;
-    const rect = cardRefs.current[selected.id]?.getBoundingClientRect();
-    onCardPlayed(selected, rect ?? null);
-  }
-
-  function bankIt() {
-    if (!selected) return;
-    firePlayAnimation();
-    actions.playCard(selected.id, 'bank', {});
-    clearSelected();
-  }
-
-  function playToProperty(color) {
-    if (!selected) return;
-    firePlayAnimation();
-    actions.playCard(selected.id, 'property', { targetColor: color });
-    clearSelected();
-  }
-
-  function playAction(opts = {}) {
-    if (!selected) return;
-    firePlayAnimation();
-    actions.playCard(selected.id, 'action', opts);
-    clearSelected();
-  }
-
-  function enterTargeting(type, opts = {}) {
-    if (!selected) return;
-    onEnterTargeting?.({ card: selected, type, ...opts });
-    clearSelected();
-  }
-
-  // ── Action bar options for the selected card ──────────────
-  function getActionOptions() {
-    if (!selected) return [];
-    const card = selected;
-    const opts = [];
-
-    if (card.type === CARD_TYPE.MONEY) {
-      opts.push({ label: `Bank $${card.value}M`, color: '#15803d', onPress: bankIt });
-      return opts;
-    }
-
-    if (card.type === CARD_TYPE.PROPERTY) {
-      opts.push({ label: `Play to board`, color: '#1d4ed8', onPress: () => playToProperty(card.color) });
-      return opts;
-    }
-
-    if (card.type === CARD_TYPE.WILDCARD) {
-      card.colors.forEach(c => {
-        opts.push({ label: `→ ${c}`, color: '#7c3aed', onPress: () => playToProperty(c) });
-      });
-      if (card.canPayDebt !== false) {
-        opts.push({ label: 'Bank it', color: '#15803d', onPress: bankIt });
-      }
-      return opts;
-    }
-
-    if (card.type === CARD_TYPE.RENT) {
-      const myRentColors = card.colors.filter(c => myProps[c]?.cards?.length > 0);
-      if (myRentColors.length === 0) {
-        opts.push({ label: 'Bank it', color: '#15803d', onPress: bankIt });
-        return opts;
-      }
-      myRentColors.forEach(c => {
-        if (card.allPlayers) {
-          opts.push({
-            label: `Charge ${c} rent`,
-            color: '#be185d',
-            onPress: () => playAction({ rentColor: c }),
-          });
-          if (hasDoubleRent && actionsLeft > 1) {
-            opts.push({
-              label: `2× ${c} rent`,
-              color: '#9d174d',
-              onPress: () => playAction({ rentColor: c, doubleRent: true }),
-            });
-          }
-        } else {
-          opponents.forEach(tid => {
-            const name = getPlayerName(gameState, tid);
-            opts.push({
-              label: `${c} → ${name}`,
-              color: '#be185d',
-              onPress: () => playAction({ rentColor: c, targetPlayerId: tid }),
-            });
-            if (hasDoubleRent && actionsLeft > 1) {
-              opts.push({
-                label: `2× ${c} → ${name}`,
-                color: '#9d174d',
-                onPress: () => playAction({ rentColor: c, targetPlayerId: tid, doubleRent: true }),
-              });
-            }
-          });
-        }
-      });
-      opts.push({ label: 'Bank it', color: '#15803d', onPress: bankIt });
-      return opts;
-    }
-
-    if (card.type === CARD_TYPE.ACTION) {
-      switch (card.action) {
-
-        case 'passGo':
-          opts.push({ label: 'Draw 2 cards', color: '#0369a1', onPress: () => playAction() });
-          opts.push({ label: 'Bank it', color: '#15803d', onPress: bankIt });
-          break;
-
-        case 'birthday':
-          opts.push({ label: 'Everyone pays $2M', color: '#d97706', onPress: () => playAction() });
-          opts.push({ label: 'Bank it', color: '#15803d', onPress: bankIt });
-          break;
-
-        case 'doubleRent':
-          opts.push({ label: 'Select a rent card first', color: '#9ca3af', onPress: () => {} });
-          opts.push({ label: 'Bank it ($1M)', color: '#15803d', onPress: bankIt });
-          break;
-
-        case 'debtCollector':
-          opponents.forEach(tid => {
-            opts.push({
-              label: `Collect $5M from ${getPlayerName(gameState, tid)}`,
-              color: '#dc2626',
-              onPress: () => playAction({ targetPlayerId: tid }),
-            });
-          });
-          opts.push({ label: 'Bank it', color: '#15803d', onPress: bankIt });
-          break;
-
-        case 'slyDeal':
-          opts.push({
-            label: '👆 Tap a property to steal',
-            color: '#dc2626',
-            onPress: () => enterTargeting('slyDeal'),
-          });
-          opts.push({ label: 'Bank it', color: '#15803d', onPress: bankIt });
-          break;
-
-        case 'forceDeal': {
-          const myPropCards = Object.values(myProps).flatMap(g => g.cards);
-          if (myPropCards.length === 0) {
-            opts.push({ label: 'No properties to offer', color: '#9ca3af', onPress: () => {} });
-          } else {
-            opts.push({
-              label: '👆 Tap a property to swap',
-              color: '#7c3aed',
-              onPress: () => enterTargeting('forceDeal'),
-            });
-          }
-          opts.push({ label: 'Bank it', color: '#15803d', onPress: bankIt });
-          break;
-        }
-
-        case 'dealBreaker':
-          opts.push({
-            label: '👆 Tap a complete set to steal',
-            color: '#991b1b',
-            onPress: () => enterTargeting('dealBreaker'),
-          });
-          opts.push({ label: 'Bank it', color: '#15803d', onPress: bankIt });
-          break;
-
-        case 'house': {
-          const eligible = Object.entries(myProps)
-            .filter(([c, g]) => g.cards.length >= (SET_SIZE[c] ?? 99) && !g.hasHouse && c !== 'railroad' && c !== 'utility')
-            .map(([c]) => c);
-          if (eligible.length === 0) {
-            opts.push({ label: 'No eligible sets', color: '#9ca3af', onPress: () => {} });
-          } else {
-            eligible.forEach(c => opts.push({
-              label: `House on ${c}`,
-              color: '#15803d',
-              onPress: () => playAction({ targetColor: c }),
-            }));
-          }
-          opts.push({ label: 'Bank it', color: '#15803d', onPress: bankIt });
-          break;
-        }
-
-        case 'hotel': {
-          const eligible = Object.entries(myProps)
-            .filter(([c, g]) => g.hasHouse && !g.hasHotel && c !== 'railroad' && c !== 'utility')
-            .map(([c]) => c);
-          if (eligible.length === 0) {
-            opts.push({ label: 'No sets with a house', color: '#9ca3af', onPress: () => {} });
-          } else {
-            eligible.forEach(c => opts.push({
-              label: `Hotel on ${c}`,
-              color: '#dc2626',
-              onPress: () => playAction({ targetColor: c }),
-            }));
-          }
-          opts.push({ label: 'Bank it', color: '#15803d', onPress: bankIt });
-          break;
-        }
-
-        default:
-          opts.push({ label: 'Bank it', color: '#15803d', onPress: bankIt });
-      }
-    }
-
-    return opts;
-  }
-
-  const actionOptions = getActionOptions();
+  const isMyTurn  = gameState.playerOrder[gameState.currentPlayerIndex] === playerId;
+  const draggable = canPlay && !targetingMode;
 
   return (
-    <div style={{
-      background: '#fff',
-      borderTop: '2px solid #e5e7eb',
-    }}>
-      {/* Action bar — shown when a card is selected */}
-      {selected && isMyTurn && (
-        <div style={{
-          borderBottom: '1px solid #e5e7eb',
-          padding: '10px 12px',
-          background: '#f8fafc',
-        }}>
-          <div style={{
-            fontSize: 12,
-            color: '#6b7280',
-            marginBottom: 8,
-            fontWeight: 500,
-          }}>
-            Playing: <strong style={{ color: '#111827' }}>{selected.name ?? `$${selected.value}M`}</strong>
-          </div>
-          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-            {actionOptions.map((opt, i) => (
-              <button
-                key={i}
-                onClick={opt.onPress}
-                style={{
-                  background: opt.color,
-                  color: '#fff',
-                  border: 'none',
-                  borderRadius: 20,
-                  padding: '6px 14px',
-                  fontSize: 12,
-                  fontWeight: 600,
-                  cursor: 'pointer',
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                {opt.label}
-              </button>
-            ))}
-            <button
-              onClick={clearSelected}
-              style={{
-                background: 'transparent',
-                color: '#9ca3af',
-                border: '1px solid #e5e7eb',
-                borderRadius: 20,
-                padding: '6px 14px',
-                fontSize: 12,
-                cursor: 'pointer',
-              }}
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
-      )}
-
+    <div style={{ background: '#fff', borderTop: '2px solid #e5e7eb' }}>
       {/* Hand header */}
       <div style={{
         display: 'flex',
         justifyContent: 'space-between',
         alignItems: 'center',
         padding: '8px 12px 4px',
+        gap: 8,
       }}>
         <span style={{ fontSize: 11, color: '#9ca3af', fontWeight: 600 }}>
-          HAND · {cards.length} cards
+          HAND · {cards.length}
+        </span>
+        <span style={{ fontSize: 11, color: '#9ca3af', flex: 1, textAlign: 'center' }}>
+          {draggable ? 'Drag a card onto the table to play it' : 'Tap a card to see what it does'}
         </span>
         {isMyTurn && (
-          <span style={{
-            fontSize: 11,
-            color: actionsLeft > 0 ? '#15803d' : '#dc2626',
-            fontWeight: 600,
-          }}>
-            {actionsLeft} action{actionsLeft !== 1 ? 's' : ''} left
-          </span>
-        )}
-        {isMyTurn && (
-          <button
-            onClick={onEndTurn ?? (() => actions.endTurn())}
-            disabled={!!gameState.pendingAction}
-            style={{
-              background: gameState.pendingAction ? '#9ca3af' : '#1d4ed8',
-              color: '#fff',
-              border: 'none',
-              borderRadius: 20,
-              padding: '5px 16px',
-              fontSize: 12,
-              fontWeight: 700,
-              cursor: gameState.pendingAction ? 'not-allowed' : 'pointer',
-            }}
-          >
-            End Turn
-          </button>
+          <>
+            <span style={{
+              fontSize: 11,
+              color: actionsLeft > 0 ? '#15803d' : '#dc2626',
+              fontWeight: 600,
+            }}>
+              {actionsLeft} left
+            </span>
+            <button
+              onClick={onEndTurn ?? (() => actions.endTurn())}
+              disabled={!!gameState.pendingAction}
+              style={{
+                background: gameState.pendingAction ? '#9ca3af' : '#1d4ed8',
+                color: '#fff',
+                border: 'none',
+                borderRadius: 20,
+                padding: '5px 16px',
+                fontSize: 12,
+                fontWeight: 700,
+                cursor: gameState.pendingAction ? 'not-allowed' : 'pointer',
+              }}
+            >
+              End Turn
+            </button>
+          </>
         )}
       </div>
 
-      {/* Cards row */}
-      <div style={{
+      {/* Cards row — swipe sideways to scroll, drag a card up to play it */}
+      <div data-hand style={{
         display: 'flex',
         gap: 6,
         overflowX: 'auto',
-        padding: '6px 12px 12px',
+        padding: '10px 12px 14px',
         WebkitOverflowScrolling: 'touch',
       }}>
-        {cards.map(card => (
-          <div
-            key={card.id}
-            ref={el => { if (el) cardRefs.current[card.id] = el; else delete cardRefs.current[card.id]; }}
-            style={{ flexShrink: 0 }}
-            onPointerDown={() => handlePointerDown(card)}
-            onPointerUp={handlePointerUp}
-            onPointerCancel={handlePointerUp}
-            onPointerLeave={handlePointerUp}
-          >
-            <Card
-              card={card}
-              selected={selected?.id === card.id}
-              dimmed={targetingMode || (!isMyTurn)}
-              onClick={isMyTurn && !targetingMode ? selectCard : undefined}
-            />
-          </div>
-        ))}
+        {cards.map(card => {
+          const beingDragged = dragCard?.id === card.id;
+          return (
+            <div
+              key={card.id}
+              onPointerDown={draggable ? e => beginDrag(e, card, { from: 'hand' }, setInfoCard) : undefined}
+              onClick={draggable ? undefined : () => setInfoCard(card)}
+              style={{
+                flexShrink: 0,
+                touchAction: draggable ? 'pan-x' : undefined,
+                cursor: draggable ? 'grab' : 'pointer',
+                opacity: beingDragged ? 0.25 : 1,
+                transition: 'opacity 0.12s',
+              }}
+            >
+              <Card card={card} dimmed={!isMyTurn} />
+            </div>
+          );
+        })}
         {cards.length === 0 && (
           <span style={{ fontSize: 12, color: '#d1d5db', fontStyle: 'italic', padding: '8px 0' }}>
             No cards in hand
@@ -396,11 +112,7 @@ export default function Hand({
   );
 }
 
-function getPlayerName(gameState, playerId) {
-  return gameState.playerNames?.[playerId] ?? playerId?.slice(0, 6) ?? 'Player';
-}
-
-// ── Hand Card Info Modal (long-press) ──────────────────────────
+// ── Hand Card Info (tap a card) ────────────────────────────────
 
 function HandCardInfo({ card, myProperties, onClose }) {
   return (

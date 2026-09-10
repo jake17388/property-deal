@@ -50,6 +50,34 @@ The `Procfile` (`web: node server.js`) is compatible with Heroku-style platforms
 - Each turn: draw 2 cards, play up to 3 cards, end your turn
 - First player to collect **3 complete property sets** wins
 
+**Playing a card.** Drag it out of your hand and drop it where you want it —
+the places that will take the card light up as you move, and a label under the
+card says what dropping it there would do. Tap a card instead to read what it
+does.
+
+| Card | Where you drop it |
+|---|---|
+| Money, or anything you'd rather bank | your bank pile |
+| Property | your board, or straight onto the matching set |
+| Wildcard | onto a set, or on open board space to pick a colour |
+| Rent | your board — a popup asks which colour to charge, who pays, and whether to double it |
+| House / Hotel | the complete set it goes on |
+| Pass Go, It's My Birthday | your board |
+| Debt Collector | the player who owes you |
+| Sly Deal, Force Deal | the opponent's property card you want |
+| Deal Breaker | the complete set you're stealing |
+
+**Double the Rent** isn't dragged out on its own: drop a rent card and, as long
+as you have two actions left, the rent popup offers a **×2** option that plays
+your Double the Rent card alongside it.
+
+**Just Say No** still works as a prompt — when someone plays an action against
+you, the banner at the top offers it (and a counter, if they counter back).
+
+Everything each player has banked is stacked into a single pile on their board;
+tap a pile to see what's in it. A wildcard already on your board carries a ⇄
+badge and can be dragged into another of your sets.
+
 ## How to play — Mah Jong
 
 **The set** (160 tiles): three suits — green, red and black — with four of each number
