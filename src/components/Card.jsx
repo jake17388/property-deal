@@ -71,7 +71,6 @@ export default function Card({ card, onClick, selected, small, faceDown, dimmed,
         background: 'repeating-linear-gradient(45deg,#1e3a8a,#1e3a8a 4px,#1d4ed8 4px,#1d4ed8 8px)',
         border: '2px solid #1e3a8a',
         flexShrink: 0,
-        borderRadius: 8,
       }} />
     );
   }
@@ -94,6 +93,7 @@ export default function Card({ card, onClick, selected, small, faceDown, dimmed,
   return (
     <div
       onClick={() => onClick?.(card)}
+      data-card-id={card.id}
       className={highlighted ? 'card-shake' : undefined}
       style={{
         width: w,
