@@ -207,15 +207,6 @@ function BankPile({ cards, total, isYou, playerId, dropCtx, onOpen }) {
             <Card card={card} small />
           </div>
         ))}
-        {cards.length > 1 && (
-          <div style={{
-            position: 'absolute', right: -2, top: -4, zIndex: 10,
-            background: '#111827', color: '#fff', borderRadius: 20,
-            fontSize: 9, fontWeight: 700, padding: '1px 5px',
-          }}>
-            ×{cards.length}
-          </div>
-        )}
       </div>
 
       <div style={{ fontSize: 12, fontWeight: 800, color: empty ? '#d1d5db' : '#15803d', marginTop: 3 }}>
