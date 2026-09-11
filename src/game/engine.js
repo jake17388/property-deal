@@ -758,19 +758,89 @@ function resolveForceDeal(state, pending) {
 
 function resolveDealBreaker(state, pending) {
   const { fromId, toId, targetColor } = pending;
-  const group = state.players[fromId].properties[targetColor];
+  const thief  = state.players[toId];
+  const stolen = state.players[fromId].properties[targetColor];
+  const held   = thief.properties[targetColor];
 
-  if (!state.players[toId].properties[targetColor]) {
-    state.players[toId].properties[targetColor] = { cards: [], hasHouse: false, hasHotel: false };
-  }
+  // Merge rather than replace. The thief may already hold cards in this colour —
+  // with a full deck those can only be wildcards, since the stolen set accounts
+  // for every real property of the colour — and replacing the group dropped them
+  // off the board entirely.
+  thief.properties[targetColor] = {
+    cards:     [...stolen.cards, ...(held?.cards ?? [])],
+    hasHouse:  stolen.hasHouse || held?.hasHouse || false,
+    hasHotel:  stolen.hasHotel || held?.hasHotel || false,
+    houseCard: stolen.houseCard ?? held?.houseCard ?? null,
+    hotelCard: stolen.hotelCard ?? held?.hotelCard ?? null,
+  };
+  // Two sets' worth of buildings can't both stand on one set; the spare is banked
+  // rather than lost.
+  if (stolen.houseCard && held?.houseCard) thief.bank.push(held.houseCard);
+  if (stolen.hotelCard && held?.hotelCard) thief.bank.push(held.hotelCard);
 
-  state.players[toId].properties[targetColor] = { ...group };
   delete state.players[fromId].properties[targetColor];
 
   state.pendingAction = null;
   state.phase = 'playing';
   addLog(state, `Deal Breaker! ${toId} stole ${fromId}'s complete ${targetColor} set.`);
+
+  settleOverfullGroup(state, toId, targetColor);
   checkWin(state);
+  return state;
+}
+
+// The colours a wildcard could move to, other than the one it sits in, that
+// still have room for it.
+function placeableColors(player, card, excludeColor) {
+  return (card.colors ?? [])
+    .filter(c => c !== excludeColor)
+    .filter(c => (player.properties[c]?.cards.length ?? 0) < (SET_SIZE[c] ?? 0));
+}
+
+// A group left over capacity — a stolen complete set landing on top of wildcards
+// the thief already had in that colour — has its surplus wildcards moved out.
+// A wildcard with a single home left moves itself; one with a choice (an
+// all-colour wild, which fits anywhere) is handed to the player to place.
+function settleOverfullGroup(state, playerId, color) {
+  const player   = state.players[playerId];
+  const capacity = SET_SIZE[color] ?? 0;
+
+  const overfull = () => {
+    const group = player.properties[color];
+    return group && group.cards.length > capacity ? group : null;
+  };
+
+  let group;
+  while ((group = overfull())) {
+    // Move the most footloose wildcard first, so the ones tied to this colour
+    // stay put: an all-colour wild has somewhere else to be, a Green/Dark Blue
+    // wild sitting in a dark blue set has only green.
+    const wilds = group.cards
+      .filter(c => c.type === CARD_TYPE.WILDCARD)
+      .map(card => ({ card, colors: placeableColors(player, card, color) }))
+      .sort((a, b) => b.colors.length - a.colors.length);
+
+    if (wilds.length === 0) break;          // nothing movable — leave the board as it is
+    const [{ card, colors }] = wilds;
+
+    if (colors.length !== 1) {
+      // No single obvious home: ask the player which colour it should switch to.
+      state.phase = 'movingWildcard';
+      state.pendingAction = { type: 'wildcardOverflow', playerId, color, cardId: card.id };
+      addLog(state, `${playerId} must pick a new colour for ${getCardName(card)} — the ${color} set is full.`);
+      return state;
+    }
+
+    const [newColor] = colors;
+    group.cards.splice(group.cards.indexOf(card), 1);
+    card.currentColor = newColor;
+    if (!player.properties[newColor]) {
+      player.properties[newColor] = { cards: [], hasHouse: false, hasHotel: false };
+    }
+    player.properties[newColor].cards.push(card);
+    addLog(state, `${getCardName(card)} switched to ${newColor} — ${playerId}'s ${color} set is full.`);
+  }
+
   return state;
 }
 
@@ -808,11 +878,17 @@ export function moveWildcard(state, playerId, cardId, newColor) {
 
   // Resolve wildcardOverflow if the overfull group is now back to capacity
   if (state.phase === 'movingWildcard' && state.pendingAction?.type === 'wildcardOverflow') {
-    const { color: overflowColor } = state.pendingAction;
+    const { color: overflowColor, cardId: placingId } = state.pendingAction;
     const overflowGroup = player.properties[overflowColor];
     if (!overflowGroup || overflowGroup.cards.length <= (SET_SIZE[overflowColor] ?? 0)) {
       state.pendingAction = null;
       state.phase = 'playing';
+    } else if (placingId) {
+      // The engine was placing a named card and the set is still overfull — a
+      // second wildcard has to move too. Settle again for the next one.
+      state.pendingAction = null;
+      state.phase = 'playing';
+      settleOverfullGroup(state, playerId, overflowColor);
     }
   }
 

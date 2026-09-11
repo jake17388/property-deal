@@ -92,6 +92,17 @@ export default function GameBoard({ gameState, playerId, playerNames, actions, r
   const canPlay = isMyTurn && !pending && gameState.phase === 'playing' && actionsLeft > 0;
   const canMove = isMyTurn && (gameState.phase === 'playing' || gameState.phase === 'movingWildcard');
 
+  // A set filled up under a wildcard of yours — a stolen complete set landing on
+  // top of it — and the engine couldn't pick its new colour for you. Ask.
+  const overflowPick = (() => {
+    if (pending?.type !== 'wildcardOverflow' || pending.playerId !== playerId || !pending.cardId) return null;
+    const card = myProps[pending.color]?.cards.find(c => c.id === pending.cardId);
+    if (!card) return null;
+    const others   = (card.colors ?? []).filter(c => c !== pending.color);
+    const withRoom = others.filter(c => !isSetComplete(c, myProps[c]));
+    return { card, colors: withRoom.length > 0 ? withRoom : others };
+  })();
+
   const dropCtx = {
     canPlay,
     canMove,
@@ -359,7 +370,9 @@ export default function GameBoard({ gameState, playerId, playerNames, actions, r
           background: '#fef3c7', borderBottom: '2px solid #f59e0b',
           padding: '10px 16px', fontSize: 13, fontWeight: 600, color: '#92400e',
         }}>
-          ⚠️ Your <strong>{labelOf(pending.color)}</strong> set is overfull — drag a wildcard (⇄) into another set.
+          {pending.cardId
+            ? <>⚠️ Your <strong>{labelOf(pending.color)}</strong> set is full — pick a new colour for your wildcard.</>
+            : <>⚠️ Your <strong>{labelOf(pending.color)}</strong> set is overfull — drag a wildcard (⇄) into another set.</>}
         </div>
       )}
 
@@ -479,6 +492,19 @@ export default function GameBoard({ gameState, playerId, playerNames, actions, r
             setColorModal(null);
           }}
           onClose={() => setColorModal(null)}
+        />
+      )}
+
+      {/* ── Forced wildcard placement (a stolen set filled the colour) ── */}
+      {overflowPick && (
+        <ColorModal
+          card={overflowPick.card}
+          colors={overflowPick.colors}
+          title={`Your ${labelOf(pending.color)} set is full`}
+          subtitle="Pick the colour this wildcard switches to"
+          myProperties={myProps}
+          dismissible={false}
+          onPick={color => actions.moveWildcard(overflowPick.card.id, color)}
         />
       )}
 
@@ -799,10 +825,10 @@ function RentModal({
 
 // ── Colour picker ─────────────────────────────────────────────
 
-function ColorModal({ card, colors, title, myProperties, onPick, onClose }) {
+function ColorModal({ card, colors, title, subtitle, myProperties, onPick, onClose, dismissible = true }) {
   return (
-    <Sheet onClose={onClose}>
-      <SheetTitle title={title} subtitle={card.name} />
+    <Sheet onClose={dismissible ? onClose : undefined}>
+      <SheetTitle title={title} subtitle={subtitle ?? card.name} />
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
         {colors.map(c => {
           const cfg   = getColorConfig(c);
@@ -826,7 +852,7 @@ function ColorModal({ card, colors, title, myProperties, onPick, onClose }) {
           );
         })}
       </div>
-      <CancelButton onClick={onClose} />
+      {dismissible && <CancelButton onClick={onClose} />}
     </Sheet>
   );
 }

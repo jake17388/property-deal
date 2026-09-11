@@ -131,19 +131,23 @@ export function getBotWildcardOverflowMove(state, botId) {
   const group = bot.properties[overflowColor];
   if (!group) return null;
 
-  const wild = group.cards.find(c => c.type === CARD_TYPE.WILDCARD);
+  // The engine names the card when it is the one that has to move — a wildcard a
+  // stolen set displaced. Otherwise any wildcard in the group will do.
+  const wild = (pending.cardId && group.cards.find(c => c.id === pending.cardId))
+    ?? group.cards.find(c => c.type === CARD_TYPE.WILDCARD);
   if (!wild) return null;
 
-  // Pick the alternate color where the bot has the most cards (closest to completing)
+  // Pick the alternate color where the bot has the most cards (closest to
+  // completing), preferring ones with room over sets that are already full.
   const altColors = wild.colors.filter(c => c !== overflowColor);
   if (altColors.length === 0) return null;
 
   let bestColor = altColors[0];
-  let bestScore = -1;
+  let bestScore = -Infinity;
   for (const c of altColors) {
     const have  = bot.properties[c]?.cards.length ?? 0;
     const need  = SET_SIZE[c] ?? 3;
-    const score = have / need + (have > 0 ? 0.1 : 0);
+    const score = have / need + (have > 0 ? 0.1 : 0) - (have >= need ? 10 : 0);
     if (score > bestScore) { bestScore = score; bestColor = c; }
   }
 

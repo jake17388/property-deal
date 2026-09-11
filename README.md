@@ -83,7 +83,10 @@ you, the banner at the top offers it (and a counter, if they counter back).
 Everything each player has banked is stacked into a single pile on their board;
 the pile's total sits beside that player's name in their board header, where the
 stacked cards can't cover it, and tapping a pile shows what's in it. A wildcard already on your board carries a ⇄
-badge and can be dragged into another of your sets.
+badge and can be dragged into another of your sets. If a set fills up underneath
+one — you Deal Breaker the matching set off someone else — the wildcard switches
+to its other colour on its own; an all-colour wild has no other colour to fall
+back on, so you're asked which one it should become.
 
 ## How to play — Mah Jong
 
