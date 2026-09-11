@@ -68,9 +68,22 @@ export default function PlayerBoard({
         }}>
           {playerName?.[0]?.toUpperCase() ?? '?'}
         </div>
-        <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 14, fontWeight: 600, color: '#111827' }}>
-            {playerName}{isYou && <span style={{ color: '#3b82f6', fontSize: 12, marginLeft: 6 }}>you</span>}
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+            <span style={{ fontSize: 14, fontWeight: 600, color: '#111827' }}>
+              {playerName}{isYou && <span style={{ color: '#3b82f6', fontSize: 12, marginLeft: 6 }}>you</span>}
+            </span>
+            {/* The bank total lives here, beside the name — on the pile itself
+                the stacked cards cover it. */}
+            <span style={{
+              fontSize: 12, fontWeight: 800,
+              color: bankTotal > 0 ? '#15803d' : '#9ca3af',
+              background: bankTotal > 0 ? '#dcfce7' : '#f3f4f6',
+              border: `1px solid ${bankTotal > 0 ? '#86efac' : '#e5e7eb'}`,
+              borderRadius: 20, padding: '1px 8px', whiteSpace: 'nowrap',
+            }}>
+              ${bankTotal}M
+            </span>
           </div>
           <div style={{ fontSize: 11, color: '#6b7280' }}>
             {completeSets}/3 sets · Hand: {player.handCount ?? player.hand?.length ?? 0}
@@ -94,7 +107,6 @@ export default function PlayerBoard({
         {/* Bank — one pile, not a row of cards */}
         <BankPile
           cards={player.bank}
-          total={bankTotal}
           isYou={isYou}
           playerId={player.id}
           dropCtx={dropCtx}
@@ -157,7 +169,7 @@ export default function PlayerBoard({
 
 // Every banked card lives in one stack. The top three or four are drawn
 // slightly offset so the pile reads as a pile; tapping it lists the lot.
-function BankPile({ cards, total, isYou, playerId, dropCtx, onOpen }) {
+function BankPile({ cards, isYou, playerId, dropCtx, onOpen }) {
   const { attach, isOver, eligible } = useDropZone(
     dropZone({ kind: 'bank', playerId }, dropCtx),
     isYou && !!dropCtx,
@@ -209,8 +221,8 @@ function BankPile({ cards, total, isYou, playerId, dropCtx, onOpen }) {
         ))}
       </div>
 
-      <div style={{ fontSize: 12, fontWeight: 800, color: empty ? '#d1d5db' : '#15803d', marginTop: 3 }}>
-        ${total}M
+      <div style={{ fontSize: 9, fontWeight: 600, color: '#9ca3af', marginTop: 3 }}>
+        {cards.length} card{cards.length !== 1 ? 's' : ''}
       </div>
     </div>
   );

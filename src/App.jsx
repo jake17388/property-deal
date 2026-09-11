@@ -1,5 +1,5 @@
 import { useSocket }                        from './hooks/useSocket';
-import { useGameState, loadSession, clearSession } from './hooks/useGameState';
+import { useGameState, loadSession, clearSession, loadPlayerName, savePlayerName } from './hooks/useGameState';
 import { useState }                        from 'react';
 import GameBoard                           from './components/GameBoard.jsx';
 import MahjongBoard                       from './components/mahjong/MahjongBoard.jsx';
@@ -40,9 +40,11 @@ export default function App() {
     roomCode, playerId, roomInfo, gameState, gameOver, error, actions, resignedPlayer, hasSession, rematchStatus,
   } = useGameState(socket);
 
-  const [nameInput,      setNameInput]      = useState('');
+  // Your name is remembered between visits, so a returning player lands
+  // straight on the game picker instead of retyping it.
+  const [nameInput,      setNameInput]      = useState(loadPlayerName);
   const [codeInput,      setCodeInput]      = useState('');
-  const [step,           setStep]           = useState('name');  // name → game → room
+  const [step,           setStep]           = useState(() => (loadPlayerName() ? 'game' : 'name'));  // name → game → room
   const [gameChoice,     setGameChoice]     = useState(null);
   const [showDebugSetup, setShowDebugSetup] = useState(false);
   const [showSettings,   setShowSettings]   = useState(false);
@@ -502,6 +504,11 @@ export default function App() {
   const selectedGame = GAMES[gameChoice] ?? null;
   const nameReady    = connected && nameInput.trim().length > 0;
 
+  function confirmName() {
+    savePlayerName(nameInput);
+    setStep('game');
+  }
+
   const shell = shellWrapper;
   function shellWrapper(children) { return (
     <div style={{
@@ -600,7 +607,7 @@ export default function App() {
           placeholder="Enter your name"
           value={nameInput}
           onChange={e => setNameInput(e.target.value)}
-          onKeyDown={e => { if (e.key === 'Enter' && nameReady) setStep('game'); }}
+          onKeyDown={e => { if (e.key === 'Enter' && nameReady) confirmName(); }}
           onFocus={e => e.target.style.borderColor = '#3b82f6'}
           onBlur={e => e.target.style.borderColor = '#e5e7eb'}
         />
@@ -609,7 +616,7 @@ export default function App() {
       {errorBox}
 
       <button
-        onClick={() => setStep('game')}
+        onClick={confirmName}
         disabled={!nameReady}
         style={{
           width: '100%', background: nameReady ? '#1d4ed8' : '#d1d5db',

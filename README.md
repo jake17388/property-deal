@@ -45,6 +45,8 @@ The `Procfile` (`web: node server.js`) is compatible with Heroku-style platforms
 
 ## How to play — Property Deal
 
+- Your name is remembered between visits, so reopening the app drops you
+  straight on the game picker — "← Change name" on that screen changes it
 - Create a room, share the room code with friends
 - The host starts the game once everyone has joined
 - Each turn: draw 2 cards, play up to 3 cards, end your turn
@@ -79,7 +81,8 @@ your Double the Rent card alongside it.
 you, the banner at the top offers it (and a counter, if they counter back).
 
 Everything each player has banked is stacked into a single pile on their board;
-tap a pile to see what's in it. A wildcard already on your board carries a ⇄
+the pile's total sits beside that player's name in their board header, where the
+stacked cards can't cover it, and tapping a pile shows what's in it. A wildcard already on your board carries a ⇄
 badge and can be dragged into another of your sets.
 
 ## How to play — Mah Jong
