@@ -79,10 +79,16 @@ export default function Card({ card, onClick, selected, small, faceDown, dimmed,
   const w = small ? 44 : 72;
   const h = small ? 62 : 100;
 
-  // Gradient border trick: layer body as padding-box on top of border gradient as border-box
+  // Gradient border trick: layer body as padding-box on top of border gradient as border-box.
+  // Both layers have to be images — a plain colour is only legal in the last layer of the
+  // shorthand, and one there voids the whole declaration, leaving the card see-through — so a
+  // solid body colour goes in as a gradient of itself.
   const useGradientBorder = !selected && !!v.borderGradient;
+  const bodyLayer = v.bodyBg.includes('gradient')
+    ? v.bodyBg
+    : `linear-gradient(${v.bodyBg}, ${v.bodyBg})`;
   const cardBg = useGradientBorder
-    ? `${v.bodyBg} padding-box, ${v.borderGradient} border-box`
+    ? `${bodyLayer} padding-box, ${v.borderGradient} border-box`
     : v.bodyBg;
   const cardBorder = selected
     ? '2px solid #f59e0b'
