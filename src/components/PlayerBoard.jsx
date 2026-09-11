@@ -210,7 +210,7 @@ function BankPile({ cards, isYou, playerId, dropCtx, onOpen }) {
             {isYou ? 'drop cards here' : 'empty'}
           </div>
         ) : shown.map((card, i) => (
-          <div key={card.id} style={{
+          <div key={card.id} className="card-in" style={{
             position: 'absolute',
             left: 4 + i * 3,
             top: i * 3,
@@ -383,6 +383,7 @@ function BoardCard({
   return (
     <div
       ref={isYou ? undefined : attach}
+      className="card-in"
       onPointerDown={draggable ? e => beginDrag(e, card, { from: 'board', color }, onInfoClick) : undefined}
       style={{
         position: 'relative',

@@ -57,6 +57,12 @@ the places that will take the card light up as you move, and a label under the
 card says what dropping it there would do. Tap a card instead to read what it
 does.
 
+The card lands the instant you let go, however far away the server is: the app
+plays the move on your screen straight away and squares it with the server as
+the answer comes back. Anything the app can't call on its own — what Pass Go
+draws you, who pays what — still waits for the server, and your hand sits out
+that moment rather than letting you play into an answer that hasn't arrived.
+
 Your hand is fanned rather than scrolled, so every card is within reach without
 a swipe that would fight the drag: cards overlap as the hand grows, and you
 pick one up by the sliver of it you can see.

@@ -45,6 +45,9 @@ export default function GameBoard({ gameState, playerId, playerNames, actions, r
 
   useEffect(() => {
     if (!isMyTurn || gameState.actionsUsed < ACTIONS_PER_TURN || gameState.phase !== 'playing') return;
+    // A card played at someone is still with the server; what it starts —
+    // a payment, a steal — decides whether the turn can end at all.
+    if (gameState.awaitingServer) return;
     if (!debugMode && (me?.hand?.length ?? 0) > 7) {
       const timer = setTimeout(() => { setDiscardSelected([]); setDiscardModal(true); }, 600);
       return () => clearTimeout(timer);
@@ -89,8 +92,10 @@ export default function GameBoard({ gameState, playerId, playerNames, actions, r
   // decision — which colour, which player, whether to double the rent — opens
   // on release rather than before the drag.
 
-  const canPlay = isMyTurn && !pending && gameState.phase === 'playing' && actionsLeft > 0;
-  const canMove = isMyTurn && (gameState.phase === 'playing' || gameState.phase === 'movingWildcard');
+  const canPlay = isMyTurn && !pending && !gameState.awaitingServer
+    && gameState.phase === 'playing' && actionsLeft > 0;
+  const canMove = isMyTurn && !gameState.awaitingServer
+    && (gameState.phase === 'playing' || gameState.phase === 'movingWildcard');
 
   // A set filled up under a wildcard of yours — a stolen complete set landing on
   // top of it — and the engine couldn't pick its new colour for you. Ask.
