@@ -1,6 +1,20 @@
 import { useState, useEffect, useRef } from 'react';
 
 const SESSION_KEY = 'pd_session';
+const NAME_KEY    = 'pd_player_name';
+
+// The name is remembered across visits so you don't retype it every time
+// you reopen the app; the home screen prefills from it.
+export function savePlayerName(name) {
+  const trimmed = (name ?? '').trim();
+  try {
+    if (trimmed) localStorage.setItem(NAME_KEY, trimmed);
+    else         localStorage.removeItem(NAME_KEY);
+  } catch { /* storage unavailable (private mode) — not worth failing over */ }
+}
+export function loadPlayerName() {
+  try { return localStorage.getItem(NAME_KEY) ?? ''; } catch { return ''; }
+}
 
 function saveSession(playerId, roomCode, playerName, gameType) {
   localStorage.setItem(SESSION_KEY, JSON.stringify({ playerId, roomCode, playerName, gameType }));
@@ -99,16 +113,19 @@ export function useGameState(socket) {
   const actions = {
     createRoom: (playerName, gameType = 'property') => {
       pendingNameRef.current = playerName;
+      savePlayerName(playerName);
       pendingGameRef.current = gameType;
       socket.emit('createRoom', { playerName, gameType });
     },
     createDebugRoom: (playerName) => {
       pendingNameRef.current = playerName;
+      savePlayerName(playerName);
       pendingGameRef.current = 'property';
       socket.emit('createRoom', { playerName, gameType: 'property', debug: true });
     },
     joinRoom: (roomCode, playerName, gameType) => {
       pendingNameRef.current = playerName;
+      savePlayerName(playerName);
       pendingGameRef.current = gameType ?? null;
       socket.emit('joinRoom', { roomCode, playerName, gameType });
     },
