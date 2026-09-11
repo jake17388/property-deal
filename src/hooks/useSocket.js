@@ -8,7 +8,14 @@ export function useSocket() {
   const [connected, setConnected] = useState(false);
 
   useEffect(() => {
-    const socket = io(SERVER_URL, { reconnectionDelayMax: 3000 });
+    // Ask for a websocket straight away. Socket.IO's default is to open on
+    // HTTP long-polling and upgrade a moment later, and a move made in that
+    // window costs a whole poll round trip — which is exactly the window in
+    // which you play your first card.
+    const socket = io(SERVER_URL, {
+      transports: ['websocket', 'polling'],
+      reconnectionDelayMax: 3000,
+    });
     socketRef.current = socket;
 
     socket.on('connect',    () => setConnected(true));

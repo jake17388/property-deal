@@ -17,13 +17,18 @@ const EDGE_SPEED = 16;
 // beats the group it sits in, which beats the whole player board. The card
 // being dragged is drawn in a fixed layer above everything, so nothing on the
 // board has to move — or lose pointer capture — while a drag is in flight.
+//
+// The card follows the finger on the frame loop, not on React state: a pointer
+// reports sixty to a hundred and twenty times a second, and re-rendering at
+// that rate to set a position is both slower and jerkier than writing one
+// transform per frame. React only hears about the moments that change what is
+// on screen — the card lifting, and the zone under it changing.
 export default function DragDropProvider({ onDrop, scrollRef, children }) {
-  const zones   = useRef(new Map());
-  const dragRef = useRef(null);
+  const zones    = useRef(new Map());
+  const dragRef  = useRef(null);
+  const layerRef = useRef(null);
   const [drag, setDrag] = useState(null);
   const [over, setOver] = useState(null);
-
-  useEffect(() => { dragRef.current = drag; });
 
   const register   = useCallback((id, elRef, dataRef) => { zones.current.set(id, { elRef, dataRef }); }, []);
   const unregister = useCallback(id => { zones.current.delete(id); }, []);
@@ -44,23 +49,39 @@ export default function DragDropProvider({ onDrop, scrollRef, children }) {
     return best;
   }, []);
 
+  // Puts the drag layer under the finger. Called from the frame loop, and again
+  // the instant the layer mounts so it never paints a frame at the wrong spot.
+  const positionLayer = useCallback(node => {
+    if (node) layerRef.current = node;
+    const el = layerRef.current;
+    const d  = dragRef.current;
+    if (!el || !d) return;
+    el.style.transform = `translate3d(${Math.round(d.x - d.grabX)}px, ${Math.round(d.y - d.grabY)}px, 0)`;
+  }, []);
+
   const beginDrag = useCallback((e, card, source = { from: 'hand' }, onTap = null) => {
     if (e.button != null && e.button !== 0) return;
     const r = e.currentTarget.getBoundingClientRect();
     e.currentTarget.setPointerCapture?.(e.pointerId);
-    const started = {
+    dragRef.current = {
       pointerId: e.pointerId, card, source, onTap,
       grabX: e.clientX - r.left, grabY: e.clientY - r.top,
       startX: e.clientX, startY: e.clientY,
       x: e.clientX, y: e.clientY,
       moved: false,
     };
-    dragRef.current = started;
-    setDrag(started);
+    setDrag({ card, source, moved: false });
     setOver(null);
   }, []);
 
   const dragging = !!drag;
+
+  const endDrag = useCallback(() => {
+    dragRef.current = null;
+    layerRef.current = null;
+    setDrag(null);
+    setOver(null);
+  }, []);
 
   // The finger leaves the card almost immediately — that's the whole point of a
   // drag — so the rest of the gesture is tracked on the window.
@@ -70,10 +91,12 @@ export default function DragDropProvider({ onDrop, scrollRef, children }) {
     function move(e) {
       const d = dragRef.current;
       if (!d || e.pointerId !== d.pointerId) return;
-      const moved = d.moved || Math.hypot(e.clientX - d.startX, e.clientY - d.startY) > DRAG_THRESHOLD;
-      const next = { ...d, x: e.clientX, y: e.clientY, moved };
-      dragRef.current = next;
-      setDrag(next);
+      d.x = e.clientX;
+      d.y = e.clientY;
+      if (!d.moved && Math.hypot(e.clientX - d.startX, e.clientY - d.startY) > DRAG_THRESHOLD) {
+        d.moved = true;
+        setDrag(prev => (prev ? { ...prev, moved: true } : prev));
+      }
     }
 
     function up(e) {
@@ -85,37 +108,32 @@ export default function DragDropProvider({ onDrop, scrollRef, children }) {
         const hit = hitTest(d.card, d.source, e.clientX, e.clientY);
         onDrop?.(d.card, hit?.data ?? null, d.source);
       }
-      dragRef.current = null;
-      setDrag(null);
-      setOver(null);
-    }
-
-    function cancel() {
-      dragRef.current = null;
-      setDrag(null);
-      setOver(null);
+      endDrag();
     }
 
     window.addEventListener('pointermove', move);
     window.addEventListener('pointerup', up);
-    window.addEventListener('pointercancel', cancel);
+    window.addEventListener('pointercancel', endDrag);
     return () => {
       window.removeEventListener('pointermove', move);
       window.removeEventListener('pointerup', up);
-      window.removeEventListener('pointercancel', cancel);
+      window.removeEventListener('pointercancel', endDrag);
     };
-  }, [dragging, hitTest, onDrop]);
+  }, [dragging, hitTest, onDrop, endDrag]);
 
-  // Which zone is under the finger, and scrolling the board when the finger
-  // reaches its edge, both run off the frame loop rather than off pointermove:
-  // a finger held near the edge keeps scrolling, and the zone under it keeps up
-  // as the board slides past.
+  // Moving the card, deciding which zone is under it, and scrolling the board
+  // when the finger reaches its edge all run off the frame loop: a finger held
+  // near the edge keeps scrolling, and the zone under it keeps up as the board
+  // slides past.
   useEffect(() => {
     if (!dragging) return undefined;
-    let raf = 0;
+    let raf  = 0;
+    let last = null;
     const tick = () => {
       const d = dragRef.current;
       if (d?.moved) {
+        positionLayer();
+
         const el = scrollRef?.current;
         if (el) {
           const r = el.getBoundingClientRect();
@@ -131,15 +149,23 @@ export default function DragDropProvider({ onDrop, scrollRef, children }) {
             el.scrollTop += EDGE_SPEED * Math.min(1, (d.y - (r.bottom - EDGE)) / EDGE);
           }
         }
-        const hit = hitTest(d.card, d.source, d.x, d.y);
-        const id  = hit?.id ?? null;
-        setOver(prev => (prev?.id === id ? prev : (hit ? { id, data: hit.data } : null)));
+
+        // Hit-testing reads every zone's box, which the browser can only answer
+        // by settling the layout — so it is worth skipping on the frames where
+        // nothing the answer depends on has moved.
+        const scrollTop = el?.scrollTop ?? 0;
+        if (!last || last.x !== d.x || last.y !== d.y || last.scrollTop !== scrollTop) {
+          last = { x: d.x, y: d.y, scrollTop };
+          const hit = hitTest(d.card, d.source, d.x, d.y);
+          const id  = hit?.id ?? null;
+          setOver(prev => (prev?.id === id ? prev : (hit ? { id, data: hit.data } : null)));
+        }
       }
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(raf);
-  }, [dragging, hitTest, scrollRef]);
+  }, [dragging, hitTest, scrollRef, positionLayer]);
 
   // Only the two things zones actually watch go into the context, so a pointer
   // that moves sixty times a second doesn't re-render the whole table.
@@ -159,23 +185,30 @@ export default function DragDropProvider({ onDrop, scrollRef, children }) {
     <DragDropCtx.Provider value={value}>
       {children}
       {drag?.moved && (
-        <div style={{
-          position: 'fixed',
-          left: drag.x - drag.grabX,
-          top:  drag.y - drag.grabY,
-          zIndex: 300,
-          pointerEvents: 'none',
-          transform: 'scale(1.08) rotate(-2deg)',
-          filter: 'drop-shadow(0 14px 18px rgba(0,0,0,0.32))',
-        }}>
-          <Card card={drag.card} />
+        <div
+          ref={positionLayer}
+          style={{
+            position: 'fixed',
+            left: 0,
+            top: 0,
+            zIndex: 300,
+            pointerEvents: 'none',
+            willChange: 'transform',
+          }}
+        >
+          {/* The lift lives on its own element: the layer's transform is
+              rewritten every frame, and an animation there would fight it. */}
+          <div className="card-lift" style={{ filter: 'drop-shadow(0 14px 18px rgba(0,0,0,0.32))' }}>
+            <Card card={drag.card} />
+          </div>
           {chipText && (
             <div style={{
               position: 'absolute', top: '100%', left: '50%',
-              transform: 'translate(-50%, 6px)',
+              transform: 'translate(-50%, 10px)',
               background: '#111827', color: '#fff',
               borderRadius: 20, padding: '4px 10px',
               fontSize: 11, fontWeight: 700, whiteSpace: 'nowrap',
+              animation: 'chip-in 120ms ease-out both',
             }}>
               {chipText}
             </div>

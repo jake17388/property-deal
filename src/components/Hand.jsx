@@ -110,6 +110,7 @@ export default function Hand({
           return (
             <div
               key={card.id}
+              className="card-in"
               onPointerDown={draggable ? e => beginDrag(e, card, { from: 'hand' }, setInfoCard) : undefined}
               onClick={draggable ? undefined : () => setInfoCard(card)}
               style={{
