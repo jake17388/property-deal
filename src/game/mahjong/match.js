@@ -9,8 +9,8 @@
 // ============================================================
 
 import {
-  SUITS, SUIT_DRAGON, WINDS,
-  numberKey, dragonKey, windKey, keySupply,
+  SUITS, SUIT_DRAGON, WINDS, SUIT_STYLE,
+  numberKey, dragonKey, windKey, keySupply, keyLabel, tileFromKey,
   FLOWER_KEY, JOKER_KEY, BLANK_KEY, TILE_KIND,
 } from './tiles.js';
 import { ALL_HANDS, HANDS_BY_ID } from './card.js';
@@ -208,25 +208,80 @@ export function winningHandIds(tiles) {
   return ALL_HANDS.filter(h => isHandComplete(h, tiles)).map(h => h.id);
 }
 
-// Exposure sizes (3+) that some *non-concealed* hand asks for as a group of
-// this tile. Concealed hands are excluded — you can't expose anything in one.
+// ── Claiming a discard ───────────────────────────────────────
+//
+// House rules at this table:
+//   · a group of three or more can be claimed whether it is a *set* of the
+//     same tile or a *run* of consecutive numbers in one suit;
+//   · the hands the card prints as concealed are played like any other, so
+//     they can expose too.
+// What has not changed: the group has to be one a hand actually asks for, a
+// pair or a lone single can never be claimed, and a joker still cannot stand
+// in for a single tile — so a run is built out of real tiles only.
+
+const MIN_GROUP = 3;
+
+// The hands a claim is measured against: the ones you have marked, or the
+// whole card when you have marked nothing.
+function claimHands(handIds) {
+  return handIds?.length ? handIds.map(id => HANDS_BY_ID[id]).filter(Boolean) : ALL_HANDS;
+}
+
+// Set sizes (3+) that some hand asks for as a group of this tile.
 export function allowedExposureSizes(tileKeyStr, handIds = null) {
-  const pool  = handIds?.length ? handIds.map(id => HANDS_BY_ID[id]).filter(Boolean) : ALL_HANDS;
   const sizes = new Set();
-  for (const hand of pool) {
-    if (hand.concealed) continue;
+  for (const hand of claimHands(handIds)) {
     for (const v of handVariants(hand)) {
       for (const req of v.reqs) {
-        if (req.key === tileKeyStr && req.count >= 3 && req.jokersOk) sizes.add(req.count);
+        if (req.key === tileKeyStr && req.count >= MIN_GROUP && req.jokersOk) sizes.add(req.count);
       }
     }
   }
   return [...sizes].sort((a, b) => a - b);
 }
 
-// What the player could actually lay down with the discard: sizes that a card
-// hand asks for AND that their rack can cover (matching tiles, jokers filling
-// the rest). Never uses a joker for the claimed tile itself.
+// Runs (3+ consecutive numbers in one suit) through this tile that some hand
+// asks for, every number of them. A hand that wants a number in *any* suit
+// counts too — laying the run down in one suit still satisfies it.
+export function allowedRuns(tileKeyStr, handIds = null) {
+  const tile = tileFromKey(tileKeyStr);
+  if (tile.kind !== TILE_KIND.NUMBER) return [];
+
+  const seen = new Set();
+  const runs = [];
+
+  for (const hand of claimHands(handIds)) {
+    for (const v of handVariants(hand)) {
+      const keys     = new Set(v.reqs.map(r => r.key));
+      const freeNums = new Set(v.free.map(r => r.num));
+      const wants    = n => keys.has(numberKey(tile.suit, n)) || freeNums.has(n);
+      if (!wants(tile.num)) continue;   // the discard itself has to be wanted
+
+      for (let start = 1; start + MIN_GROUP - 1 <= 9; start++) {
+        for (let end = start + MIN_GROUP - 1; end <= 9; end++) {
+          if (tile.num < start || tile.num > end) continue;
+          const size = end - start + 1;
+          const id   = `${tile.suit}:${start}:${size}`;
+          if (seen.has(id)) continue;
+          let ok = true;
+          for (let n = start; n <= end && ok; n++) ok = wants(n);
+          if (ok) { seen.add(id); runs.push({ suit: tile.suit, start, size }); }
+        }
+      }
+    }
+  }
+
+  return runs.sort((a, b) => a.size - b.size || a.start - b.start);
+}
+
+function runNums(run) {
+  return Array.from({ length: run.size }, (_, i) => run.start + i);
+}
+
+// What the player could actually lay down with the discard: groups a card hand
+// asks for AND that their rack can cover. Each option carries the keys it is
+// made of, so the engine can pull the exact tiles back out of the rack.
+// Never uses a joker for the claimed tile itself.
 export function claimOptions(discardTile, handTiles, markedHandIds = []) {
   if (!discardTile) return [];
   if (discardTile.kind === TILE_KIND.JOKER || discardTile.kind === TILE_KIND.BLANK) return [];
@@ -235,11 +290,33 @@ export function claimOptions(discardTile, handTiles, markedHandIds = []) {
   const jokers   = handTiles.filter(t => t.kind === TILE_KIND.JOKER).length;
   const ceiling  = 1 + matching + jokers;
 
-  return allowedExposureSizes(discardTile.key, markedHandIds)
+  const sets = allowedExposureSizes(discardTile.key, markedHandIds)
     .filter(size => size <= ceiling)
-    .map(size => ({
-      size,
-      fromHand:   Math.min(matching, size - 1),
-      jokersUsed: Math.max(0, size - 1 - matching),
+    .map(size => {
+      const fromHand = Math.min(matching, size - 1);
+      return {
+        id:         `set:${size}`,
+        kind:       'set',
+        size,
+        keys:       Array(size).fill(discardTile.key),
+        jokersUsed: size - 1 - fromHand,
+        label:      `${size}× ${keyLabel(discardTile.key)}`,
+      };
+    });
+
+  // A run needs one real tile of every other number in it — no jokers, and a
+  // second copy of the discard is no help either.
+  const have = new Set(handTiles.filter(t => t.kind !== TILE_KIND.JOKER).map(t => t.key));
+  const runs = allowedRuns(discardTile.key, markedHandIds)
+    .filter(run => runNums(run).every(n => n === discardTile.num || have.has(numberKey(run.suit, n))))
+    .map(run => ({
+      id:         `run:${run.suit}:${run.start}:${run.size}`,
+      kind:       'run',
+      size:       run.size,
+      keys:       runNums(run).map(n => numberKey(run.suit, n)),
+      jokersUsed: 0,
+      label:      `${runNums(run).join('')} ${SUIT_STYLE[run.suit].label}`,
     }));
+
+  return [...sets, ...runs];
 }

@@ -244,44 +244,60 @@ export function drawFromWall(prev, playerId) {
   return state;
 }
 
-export function claimDiscard(prev, playerId, size) {
+// Which claim the player picked, as an id from `claimOptions`. A bare number
+// still means a set of that size — that is all the old button sent.
+function claimOptionId(option) {
+  if (option == null)               return null;
+  if (typeof option === 'number')   return `set:${option}`;
+  if (typeof option === 'object')   return option.id ?? null;
+  return String(option);
+}
+
+export function claimDiscard(prev, playerId, option) {
   const state = clone(prev);
   requireTurn(state, playerId, 'draw');
 
   const claim = state.claimable;
   if (!claim) throw new Error('There is no tile to claim.');
 
-  const p       = state.players[playerId];
-  const options = claimOptions(claim.tile, p.hand, p.markedHands);
-  const picked  = options.find(o => o.size === size);
-  if (!picked) throw new Error('You cannot lay down a group of that size with this tile.');
+  const p      = state.players[playerId];
+  const wanted = claimOptionId(option);
+  const picked = claimOptions(claim.tile, p.hand, p.markedHands).find(o => o.id === wanted);
+  if (!picked) throw new Error('You cannot lay that group down with this tile.');
 
   // Take the tile off the pile.
   const idx = state.discards.findIndex(t => t.id === claim.tile.id);
   if (idx === -1) throw new Error('That tile is no longer on the pile.');
   const [tile] = state.discards.splice(idx, 1);
 
-  // Matching tiles first, jokers only for what's left over.
+  // The claimed tile covers one of the group's tiles; the rack covers the rest.
+  const need = new Map();
+  for (const key of picked.keys) need.set(key, (need.get(key) ?? 0) + 1);
+  need.set(tile.key, need.get(tile.key) - 1);
+
   const exposed = [tile];
   const rest    = [];
   for (const t of p.hand) {
-    if (exposed.length < 1 + picked.fromHand && t.key === tile.key) exposed.push(t);
+    const want = need.get(t.key) ?? 0;
+    if (want > 0) { need.set(t.key, want - 1); exposed.push(t); }
     else rest.push(t);
   }
+
+  // Jokers only fill out what a set is short — never a tile of a run.
   let needJokers = picked.jokersUsed;
-  const keep = [];
+  const keep     = [];
   for (const t of rest) {
     if (needJokers > 0 && t.kind === TILE_KIND.JOKER) { exposed.push(t); needJokers--; }
     else keep.push(t);
   }
-  if (exposed.length !== size) throw new Error('Not enough tiles to lay that down.');
+  if (exposed.length !== picked.size) throw new Error('Not enough tiles to lay that down.');
 
   p.hand      = keep;
-  p.exposures = [...p.exposures, { key: tile.key, tiles: exposed }];
+  p.exposures = [...p.exposures, { key: tile.key, kind: picked.kind, tiles: sortTiles(exposed) }];
 
   state.claimable = null;
   state.turnStage = 'discard';
-  log(state, `${nameOf(state, playerId)} claimed the discard and exposed ${size} tiles.`);
+  log(state, `${nameOf(state, playerId)} claimed the discard and exposed ${picked.label}.`);
   return state;
 }
 
@@ -374,11 +390,12 @@ export function completedHandsFor(player, extraTile = null) {
 
 // The discard on the pile when it wins the game for this player, or null.
 //
-// Claiming for an exposure needs a group of three or more, so a hand built out
-// of singles and pairs can never lay anything down — calling the tile that
-// finishes it is the one way those hands ever take a tile off the pile. That
-// call belongs to anyone at the table, in turn or out of it, because the hand
-// ends the moment it is made and turn order stops mattering.
+// Claiming for an exposure needs a group of three or more — a set or a run —
+// so a hand built out of singles and pairs can never lay anything down, and
+// calling the tile that finishes it is the one way those hands ever take a
+// tile off the pile. That call belongs to anyone at the table, in turn or out
+// of it, because the hand ends the moment it is made and turn order stops
+// mattering.
 export function mahjongClaimFor(state, playerId) {
   if (!state || state.phase !== 'playing') return null;
 
