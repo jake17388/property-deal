@@ -110,7 +110,7 @@ export default function WinCard({ tiles, marked, completedIds, onToggle, onClose
                 suit {s}
               </span>
             ))}
-            <span style={{ color: '#6b7280' }}>· C = concealed hand</span>
+            <span style={{ color: '#6b7280' }}>· C = concealed on the card (house rule: played open)</span>
           </div>
           <div style={{ fontSize: 10.5, color: '#1d4ed8', marginTop: 6, fontWeight: 600 }}>
             Tap a hand to mark it — marked hands stay on screen under your rack.

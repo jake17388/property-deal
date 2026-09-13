@@ -120,12 +120,16 @@ send them on.
 
 **Play.** The player with 14 tiles discards first, then play goes round. On your
 turn you either draw from the wall or take the last discard — but only if it lets
-you lay down **three or more tiles** of a group in a win condition. A tile a win
-condition only wants as a *pair* can't be claimed, and jokers can't stand in for
-pairs or singles (they can fill out a group of three or more).
+you lay down **three or more tiles** of a group in a win condition. *House rule:*
+that group can be either a **set** of the same tile (`999`) or a **run** of
+consecutive numbers in one suit (`789` in black) — as long as a win condition
+you could still build asks for those tiles. A tile a win condition only wants as
+a *pair* or a lone single can't be claimed, and jokers can't stand in for pairs
+or singles: a joker fills out a set of three or more, never a tile of a run.
 
 **The card.** The `🀄 Card` button (where Property Deal has "End Turn") opens the
-win-condition card at any time. Tap hands to mark them; marked hands stay on screen
+win-condition card at any time. *House rule:* the hands the card marks `C` are
+played like every other hand — a concealed hand can expose here too. Tap hands to mark them; marked hands stay on screen
 under your rack with live progress. On the card, colour marks a *suit slot* rather
 than a specific suit: same colour means same suit, different colours mean different
 suits, so a hand can be built in whichever suits you're actually collecting.
