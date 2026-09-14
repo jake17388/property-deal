@@ -49,6 +49,66 @@ function numberBases(hand) {
 
 // ── Variant expansion ────────────────────────────────────────
 
+// A printed run of three consecutive numbers in one lane — `123`, `456`, `789`
+// — is a group of three like any other at this table, so it takes jokers once
+// a real tile of it is down. Runs are filled as a unit, which is what enforces
+// that one real tile; a leftover number either side of a run is a single
+// again, and singles and pairs never take a joker.
+const RUN_LEN = 3;
+
+// The printed groups of a hand, resolved to concrete tiles. Number groups also
+// carry where they sit — `lane` is the suit slot they were printed in ('free'
+// for a number the hand takes in any suit) — so a run can be spotted as
+// consecutive numbers printed side by side in the same lane.
+function resolveGroups(groups, suitBySlot, base) {
+  const out = [];
+  for (const g of groups) {
+    const c = g.c ?? 1;
+    if (g.t !== 'n') { out.push({ g, c, lane: null }); continue; }
+    if (g.free) { out.push({ g, c, lane: 'free', num: g.lit, member: { num: g.lit } }); continue; }
+    const suit = suitBySlot[g.s];
+    if (!suit) return null;
+    const num = g.lit != null ? g.lit : base + (g.off ?? 0);
+    if (num < 1 || num > 9) return null;
+    const key = numberKey(suit, num);
+    out.push({ g, c, lane: `slot${g.s}`, num, key, member: { key, num } });
+  }
+  return out;
+}
+
+// Which of those groups make up a printed run. Blocks are taken as printed and
+// in threes, so `123 456 789` is three runs rather than one long one, and a
+// hand that also wants one of the numbers somewhere else forms no run at all:
+// a palindrome like `345 678 DD 876 543` is six *pairs* written as two runs,
+// and pairs take no jokers.
+function runBlocks(resolved) {
+  const tally = new Map();
+  for (const r of resolved) {
+    if (r.lane == null) continue;
+    const id = r.member.key ?? `free:${r.member.num}`;
+    tally.set(id, (tally.get(id) ?? 0) + r.c);
+  }
+  const solo = r => r.lane != null && r.c === 1
+    && tally.get(r.member.key ?? `free:${r.member.num}`) === 1;
+
+  const blocks = [];
+  let block    = [];
+  const flush  = () => { if (block.length === RUN_LEN) blocks.push(block); block = []; };
+
+  resolved.forEach((r, i) => {
+    if (!solo(r)) { flush(); return; }
+    const prev = block.length ? resolved[block[block.length - 1]] : null;
+    // The card prints a run either way round; both are the same three tiles.
+    const step = block.length > 1 ? resolved[block[1]].num - resolved[block[0]].num : r.num - prev?.num;
+    if (prev && prev.lane === r.lane && r.num - prev.num === step && Math.abs(step) === 1) block.push(i);
+    else { flush(); block = [i]; }
+    if (block.length === RUN_LEN) flush();
+  });
+  flush();
+
+  return blocks;
+}
+
 function buildVariant(groups, suitBySlot, base, windByLetter) {
   const byKey = new Map();   // key -> { key, count, jokersOk }
   const free  = new Map();   // number -> { num, count, jokersOk }
@@ -58,19 +118,25 @@ function buildVariant(groups, suitBySlot, base, windByLetter) {
     cur.count += count;
     // A merged requirement only takes jokers if every printed group that fed
     // it was a group of three or more — jokers can't stand in for a pair.
-    cur.jokersOk = cur.jokersOk && printedCount >= 3;
+    cur.jokersOk = cur.jokersOk && printedCount >= RUN_LEN;
     map.set(id, cur);
   };
 
-  for (const g of groups) {
-    const c = g.c ?? 1;
+  const resolved = resolveGroups(groups, suitBySlot, base);
+  if (!resolved) return null;
+
+  const blocks = runBlocks(resolved);
+  const runs   = blocks.map(block => ({
+    members: block.map(i => resolved[i].member).sort((a, b) => a.num - b.num),
+  }));
+  const inRun  = new Set(blocks.flat());
+
+  for (let i = 0; i < resolved.length; i++) {
+    if (inRun.has(i)) continue;           // the run fills these, as a unit
+    const { g, c, key } = resolved[i];
     if (g.t === 'n') {
-      if (g.free) { add(free, g.lit, { num: g.lit }, c, c); continue; }
-      const suit = suitBySlot[g.s];
-      if (!suit) return null;
-      const num = g.lit != null ? g.lit : base + (g.off ?? 0);
-      if (num < 1 || num > 9) return null;
-      add(byKey, numberKey(suit, num), { key: numberKey(suit, num) }, c, c);
+      if (g.free) add(free, g.lit, { num: g.lit }, c, c);
+      else        add(byKey, key, { key }, c, c);
     } else if (g.t === 'd') {
       const dragon = g.lit ?? SUIT_DRAGON[suitBySlot[g.s]];
       if (!dragon) return null;
@@ -87,7 +153,10 @@ function buildVariant(groups, suitBySlot, base, windByLetter) {
   for (const req of byKey.values()) {
     if (req.count > keySupply(req.key) && !req.jokersOk) return null;
   }
-  return { reqs: [...byKey.values()], free: [...free.values()], suitBySlot, base, windByLetter };
+  return {
+    reqs: [...byKey.values()], free: [...free.values()], runs,
+    suitBySlot, base, windByLetter,
+  };
 }
 
 const variantCache = new Map();
@@ -159,6 +228,22 @@ function fillVariant(variant, pool) {
     matched    += got;
     const short = req.count - got;
     if (short > 0 && req.jokersOk) {
+      const useJ = Math.min(short, jokersLeft);
+      jokersLeft -= useJ;
+      matched    += useJ;
+    }
+  }
+  // A printed run of three takes jokers, but only for the tiles beyond the
+  // first: lay one real tile of the run and jokers can cover the rest.
+  for (const run of variant.runs) {
+    let real = 0;
+    for (const m of run.members) {
+      if (m.key) { real += consume(m.key, 1); continue; }
+      for (const suit of SUITS) if (consume(numberKey(suit, m.num), 1)) { real++; break; }
+    }
+    matched    += real;
+    const short = run.members.length - real;
+    if (real > 0 && short > 0) {
       const useJ = Math.min(short, jokersLeft);
       jokersLeft -= useJ;
       matched    += useJ;
@@ -243,35 +328,47 @@ export function allowedExposureSizes(tileKeyStr, handIds = null) {
 // Runs (3+ consecutive numbers in one suit) through this tile that some hand
 // asks for, every number of them. A hand that wants a number in *any* suit
 // counts too — laying the run down in one suit still satisfies it.
+//
+// `jokersOk` marks the ones the hand prints as a run of three: those are a
+// group of three, so jokers can fill them out, exactly as they fill out a set.
 export function allowedRuns(tileKeyStr, handIds = null) {
   const tile = tileFromKey(tileKeyStr);
   if (tile.kind !== TILE_KIND.NUMBER) return [];
 
-  const seen = new Set();
-  const runs = [];
+  const found = new Map();   // "suit:start:size" -> { suit, start, size, jokersOk }
 
   for (const hand of claimHands(handIds)) {
     for (const v of handVariants(hand)) {
       const keys     = new Set(v.reqs.map(r => r.key));
       const freeNums = new Set(v.free.map(r => r.num));
-      const wants    = n => keys.has(numberKey(tile.suit, n)) || freeNums.has(n);
+      for (const run of v.runs) {
+        for (const m of run.members) (m.key ? keys : freeNums).add(m.key ?? m.num);
+      }
+      const wants = n => keys.has(numberKey(tile.suit, n)) || freeNums.has(n);
       if (!wants(tile.num)) continue;   // the discard itself has to be wanted
 
+      // Runs this hand prints as a group, which is what lets jokers in.
+      const printed = new Set(v.runs
+        .filter(r => r.members.every(m => !m.key || m.key === numberKey(tile.suit, m.num)))
+        .map(r => `${r.members[0].num}:${r.members.length}`));
+
       for (let start = 1; start + MIN_GROUP - 1 <= 9; start++) {
-        for (let end = start + MIN_GROUP - 1; end <= 9; end++) {
-          if (tile.num < start || tile.num > end) continue;
+        for (let end = Math.max(start + MIN_GROUP - 1, tile.num); end <= 9; end++) {
+          if (tile.num < start) break;
           const size = end - start + 1;
-          const id   = `${tile.suit}:${start}:${size}`;
-          if (seen.has(id)) continue;
           let ok = true;
           for (let n = start; n <= end && ok; n++) ok = wants(n);
-          if (ok) { seen.add(id); runs.push({ suit: tile.suit, start, size }); }
+          if (!ok) continue;
+          const id  = `${tile.suit}:${start}:${size}`;
+          const run = found.get(id) ?? { suit: tile.suit, start, size, jokersOk: false };
+          run.jokersOk = run.jokersOk || printed.has(`${start}:${size}`);
+          found.set(id, run);
         }
       }
     }
   }
 
-  return runs.sort((a, b) => a.size - b.size || a.start - b.start);
+  return [...found.values()].sort((a, b) => a.size - b.size || a.start - b.start);
 }
 
 function runNums(run) {
@@ -304,19 +401,25 @@ export function claimOptions(discardTile, handTiles, markedHandIds = []) {
       };
     });
 
-  // A run needs one real tile of every other number in it — no jokers, and a
-  // second copy of the discard is no help either.
+  // A run is built from the rack a number at a time — a second copy of the
+  // discard is no help. Jokers fill the gaps only in a run the card prints as
+  // a group of three, and never the claimed tile itself, so a claimed run
+  // always goes down with at least one real tile in it.
   const have = new Set(handTiles.filter(t => t.kind !== TILE_KIND.JOKER).map(t => t.key));
-  const runs = allowedRuns(discardTile.key, markedHandIds)
-    .filter(run => runNums(run).every(n => n === discardTile.num || have.has(numberKey(run.suit, n))))
-    .map(run => ({
+  const runs = [];
+  for (const run of allowedRuns(discardTile.key, markedHandIds)) {
+    const gaps = runNums(run)
+      .filter(n => n !== discardTile.num && !have.has(numberKey(run.suit, n))).length;
+    if (gaps > 0 && !(run.jokersOk && gaps <= jokers)) continue;
+    runs.push({
       id:         `run:${run.suit}:${run.start}:${run.size}`,
       kind:       'run',
       size:       run.size,
       keys:       runNums(run).map(n => numberKey(run.suit, n)),
-      jokersUsed: 0,
+      jokersUsed: gaps,
       label:      `${runNums(run).join('')} ${SUIT_STYLE[run.suit].label}`,
-    }));
+    });
+  }
 
   return [...sets, ...runs];
 }

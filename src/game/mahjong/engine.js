@@ -270,30 +270,35 @@ export function claimDiscard(prev, playerId, option) {
   if (idx === -1) throw new Error('That tile is no longer on the pile.');
   const [tile] = state.discards.splice(idx, 1);
 
-  // The claimed tile covers one of the group's tiles; the rack covers the rest.
-  const need = new Map();
-  for (const key of picked.keys) need.set(key, (need.get(key) ?? 0) + 1);
-  need.set(tile.key, need.get(tile.key) - 1);
+  // Lay the group out in the order the option names it, taking real tiles
+  // first and dropping a joker into whatever gap is left — so an exposed run
+  // reads 4-J-6 rather than 4-6-J. The claimed tile is real and comes first in
+  // the pool, so it always fills its own slot: a joker can never stand in for
+  // it, and the group always goes down with at least one real tile.
+  const pool    = [tile, ...p.hand];
+  const taken   = new Set();
+  const exposed = [];
+  const gaps    = [];
 
-  const exposed = [tile];
-  const rest    = [];
-  for (const t of p.hand) {
-    const want = need.get(t.key) ?? 0;
-    if (want > 0) { need.set(t.key, want - 1); exposed.push(t); }
-    else rest.push(t);
+  picked.keys.forEach((key, i) => {
+    const real = pool.find(t => !taken.has(t.id) && t.key === key);
+    if (real) { taken.add(real.id); exposed[i] = real; }
+    else gaps.push(i);
+  });
+  for (const i of gaps) {
+    const joker = pool.find(t => !taken.has(t.id) && t.kind === TILE_KIND.JOKER);
+    if (!joker) break;
+    taken.add(joker.id);
+    exposed[i] = joker;
   }
 
-  // Jokers only fill out what a set is short — never a tile of a run.
-  let needJokers = picked.jokersUsed;
-  const keep     = [];
-  for (const t of rest) {
-    if (needJokers > 0 && t.kind === TILE_KIND.JOKER) { exposed.push(t); needJokers--; }
-    else keep.push(t);
-  }
-  if (exposed.length !== picked.size) throw new Error('Not enough tiles to lay that down.');
+  if (!taken.has(tile.id))                        throw new Error('That tile is not part of that group.');
+  if (exposed.filter(Boolean).length !== picked.size) throw new Error('Not enough tiles to lay that down.');
+
+  const keep = p.hand.filter(t => !taken.has(t.id));
 
   p.hand      = keep;
-  p.exposures = [...p.exposures, { key: tile.key, kind: picked.kind, tiles: sortTiles(exposed) }];
+  p.exposures = [...p.exposures, { key: tile.key, kind: picked.kind, tiles: exposed }];
 
   state.claimable = null;
   state.turnStage = 'discard';

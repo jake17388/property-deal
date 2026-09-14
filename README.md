@@ -124,8 +124,15 @@ you lay down **three or more tiles** of a group in a win condition. *House rule:
 that group can be either a **set** of the same tile (`999`) or a **run** of
 consecutive numbers in one suit (`789` in black) — as long as a win condition
 you could still build asks for those tiles. A tile a win condition only wants as
-a *pair* or a lone single can't be claimed, and jokers can't stand in for pairs
-or singles: a joker fills out a set of three or more, never a tile of a run.
+a *pair* or a lone single can't be claimed.
+
+**Jokers.** A joker stands in for a tile in any **group of three or more**,
+provided at least one real tile of that group is there. That covers sets
+(`999`, `2222`) and — *house rule* — a run of three consecutive numbers the
+card prints as a group: `123`, `456` and `789` in `123 456 789 DDD EE` each
+take a real tile plus up to two jokers. A joker never stands in for a **pair**
+or a **lone single**, and never for a run the card only prints as pairs (the
+`345 678 DD 876 543` palindrome is six pairs, so it takes none).
 
 **The card.** The `🀄 Card` button (where Property Deal has "End Turn") opens the
 win-condition card at any time. *House rule:* the hands the card marks `C` are
