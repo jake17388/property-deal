@@ -325,45 +325,26 @@ export function allowedExposureSizes(tileKeyStr, handIds = null) {
   return [...sizes].sort((a, b) => a - b);
 }
 
-// Runs (3+ consecutive numbers in one suit) through this tile that some hand
-// asks for, every number of them. A hand that wants a number in *any* suit
-// counts too — laying the run down in one suit still satisfies it.
-//
-// `jokersOk` marks the ones the hand prints as a run of three: those are a
-// group of three, so jokers can fill them out, exactly as they fill out a set.
+// Runs through this tile that a hand prints as a group — those, and only
+// those, can be claimed. A hand that wants three consecutive numbers as
+// *sets* is asking for `111` or `222`, never `123`, so it offers no run at
+// all. A hand that takes its numbers in any suit offers the run in whichever
+// suit the discard happens to be.
 export function allowedRuns(tileKeyStr, handIds = null) {
   const tile = tileFromKey(tileKeyStr);
   if (tile.kind !== TILE_KIND.NUMBER) return [];
 
-  const found = new Map();   // "suit:start:size" -> { suit, start, size, jokersOk }
+  const found = new Map();   // "start:size" -> { suit, start, size }
 
   for (const hand of claimHands(handIds)) {
     for (const v of handVariants(hand)) {
-      const keys     = new Set(v.reqs.map(r => r.key));
-      const freeNums = new Set(v.free.map(r => r.num));
       for (const run of v.runs) {
-        for (const m of run.members) (m.key ? keys : freeNums).add(m.key ?? m.num);
-      }
-      const wants = n => keys.has(numberKey(tile.suit, n)) || freeNums.has(n);
-      if (!wants(tile.num)) continue;   // the discard itself has to be wanted
-
-      // Runs this hand prints as a group, which is what lets jokers in.
-      const printed = new Set(v.runs
-        .filter(r => r.members.every(m => !m.key || m.key === numberKey(tile.suit, m.num)))
-        .map(r => `${r.members[0].num}:${r.members.length}`));
-
-      for (let start = 1; start + MIN_GROUP - 1 <= 9; start++) {
-        for (let end = Math.max(start + MIN_GROUP - 1, tile.num); end <= 9; end++) {
-          if (tile.num < start) break;
-          const size = end - start + 1;
-          let ok = true;
-          for (let n = start; n <= end && ok; n++) ok = wants(n);
-          if (!ok) continue;
-          const id  = `${tile.suit}:${start}:${size}`;
-          const run = found.get(id) ?? { suit: tile.suit, start, size, jokersOk: false };
-          run.jokersOk = run.jokersOk || printed.has(`${start}:${size}`);
-          found.set(id, run);
-        }
+        const nums = run.members.map(m => m.num);
+        if (!nums.includes(tile.num)) continue;
+        // A run printed in a suit slot is only this run in that slot's suit.
+        if (!run.members.every(m => !m.key || m.key === numberKey(tile.suit, m.num))) continue;
+        found.set(`${nums[0]}:${nums.length}`,
+          { suit: tile.suit, start: nums[0], size: nums.length });
       }
     }
   }
@@ -402,15 +383,15 @@ export function claimOptions(discardTile, handTiles, markedHandIds = []) {
     });
 
   // A run is built from the rack a number at a time — a second copy of the
-  // discard is no help. Jokers fill the gaps only in a run the card prints as
-  // a group of three, and never the claimed tile itself, so a claimed run
-  // always goes down with at least one real tile in it.
+  // discard is no help. Every claimable run is one the card prints as a group
+  // of three, so jokers fill its gaps; never the claimed tile itself, so a
+  // claimed run always goes down with at least one real tile in it.
   const have = new Set(handTiles.filter(t => t.kind !== TILE_KIND.JOKER).map(t => t.key));
   const runs = [];
   for (const run of allowedRuns(discardTile.key, markedHandIds)) {
     const gaps = runNums(run)
       .filter(n => n !== discardTile.num && !have.has(numberKey(run.suit, n))).length;
-    if (gaps > 0 && !(run.jokersOk && gaps <= jokers)) continue;
+    if (gaps > jokers) continue;
     runs.push({
       id:         `run:${run.suit}:${run.start}:${run.size}`,
       kind:       'run',

@@ -122,9 +122,11 @@ send them on.
 turn you either draw from the wall or take the last discard — but only if it lets
 you lay down **three or more tiles** of a group in a win condition. *House rule:*
 that group can be either a **set** of the same tile (`999`) or a **run** of
-consecutive numbers in one suit (`789` in black) — as long as a win condition
-you could still build asks for those tiles. A tile a win condition only wants as
-a *pair* or a lone single can't be claimed.
+three consecutive numbers in one suit — but only a run a win condition you could
+still build *prints* as a run (`123`, `456`, `789`). A win condition that wants
+consecutive numbers as sets is asking for `111` or `222`, never `123`, so it
+offers no run at all. A tile a win condition only wants as a *pair* or a lone
+single can't be claimed.
 
 **Jokers.** A joker stands in for a tile in any **group of three or more**,
 provided at least one real tile of that group is there. That covers sets
