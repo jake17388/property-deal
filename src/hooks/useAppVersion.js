@@ -61,7 +61,11 @@ export function useAppVersion() {
     return () => clearTimeout(t);
   }, [status]);
 
-  const updateAvailable = !!(info && latest && latest.build !== info.build);
+  // version.json carries a `version` stamp; `build` is optional, so fall back
+  // to it only when it is actually there. Comparing a field the file does not
+  // have made every check answer "up to date", however old the page was.
+  const stamp = v => v?.build ?? v?.version ?? null;
+  const updateAvailable = !!(info && latest && stamp(latest) && stamp(latest) !== stamp(info));
 
   const reload = useCallback(() => {
     window.location.href = updateReloadUrl(window.location.href);

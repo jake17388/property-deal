@@ -11,7 +11,7 @@ import { v4 as uuidv4 } from 'uuid';
 
 import {
   createGame, createGameDebug, drawForTurn, playCard,
-  respondToAction, moveWildcard, endTurn,
+  respondToAction, moveWildcard, endTurn, pendingResponders,
   resignGame, getCurrentPlayer, checkWin,
 } from './src/game/engine.js';
 import { FULL_DECK } from './src/game/cards.js';
@@ -36,7 +36,19 @@ const allowedOrigins = process.env.CORS_ORIGINS
 
 const io   = new Server(http, {
   cors: { origin: allowedOrigins, methods: ['GET', 'POST'] },
+  // A phone that sleeps for a moment, or a flaky mobile connection, used to
+  // cost the player their socket. Ping a little less often, wait a little
+  // longer for the answer, and let Socket.IO restore the session outright if
+  // the client comes back within a couple of minutes.
+  pingInterval: 20000,
+  pingTimeout:  30000,
+  connectionStateRecovery: { maxDisconnectionDuration: 2 * 60 * 1000 },
 });
+
+// A bug in one room must never take down every other table. Nothing here is
+// worth exiting for: log it and keep serving.
+process.on('uncaughtException',  err => console.error('Uncaught exception:', err));
+process.on('unhandledRejection', err => console.error('Unhandled rejection:', err));
 
 app.use(cors());
 app.use(express.json());
@@ -51,6 +63,34 @@ const PORT = process.env.PORT || 3001;
 
 const rooms    = {};
 const CARD_MAP = Object.fromEntries(FULL_DECK.map(c => [c.id, c]));
+
+// How long a room is kept alive with nobody connected to it, so a player who
+// drops out mid-game can come back to the same board. Rooms used to be kept
+// for ever: every abandoned game stayed in memory with its bots still playing
+// it out, and the server got slower and heavier with every game started.
+const ROOM_GRACE_MS   = 5 * 60 * 1000;
+const ROOM_SWEEP_MS   = 60 * 1000;
+const LOBBY_GRACE_MS  = 30 * 1000;
+
+function closeRoom(room, why) {
+  if (room.botTimeout) clearTimeout(room.botTimeout);
+  room.botTimeout = null;
+  delete rooms[room.roomCode];
+  console.log(`Room ${room.roomCode} closed (${why})`);
+}
+
+// Drop rooms nobody has come back to, and rooms whose game has finished and
+// emptied out.
+function sweepRooms() {
+  const now = Date.now();
+  for (const room of Object.values(rooms)) {
+    if (hasConnectedHuman(room)) { room.emptySince = null; continue; }
+    room.emptySince ??= now;
+    if (now - room.emptySince >= ROOM_GRACE_MS) closeRoom(room, 'nobody came back');
+  }
+}
+
+setInterval(sweepRooms, ROOM_SWEEP_MS).unref?.();
 
 // ============================================================
 // HELPERS
@@ -104,8 +144,7 @@ function applyMahjong(socket, fn) {
   if (!player) return emitError(socket, 'Player not found.');
 
   try {
-    const next = fn(room.gameState, player.id);
-    if (next) room.gameState = next;
+    applyMove(room, state => fn(state, player.id));
   } catch (err) {
     return emitError(socket, err.message);
   }
@@ -113,6 +152,24 @@ function applyMahjong(socket, fn) {
   broadcastGameState(room);
   emitMahjongGameOver(room);
   checkAndScheduleBotTurn(room);
+}
+
+// Property Deal ends either with a winner or — when the deck and discard run
+// dry with nothing left to play — with nobody. Both need to reach the table.
+function emitPropertyGameOver(room) {
+  const state = room.gameState;
+  if (!state) return false;
+  if (state.phase !== 'gameover' && !state.winner) return false;
+  if (room.gameOverSent) return true;
+
+  room.gameOverSent = true;
+  const winner = room.players.find(p => p.id === state.winner);
+  io.to(room.roomCode).emit('gameOver', {
+    winnerId:   state.winner ?? null,
+    winnerName: winner?.name ?? state.playerNames?.[state.winner] ?? null,
+    reason:     state.endReason ?? 'sets',
+  });
+  return true;
 }
 
 function emitMahjongGameOver(room) {
@@ -126,6 +183,18 @@ function emitMahjongGameOver(room) {
     reason:     state.endReason,
     winningHands: state.winningHands ?? [],
   });
+}
+
+// Engine calls mutate the state they are handed, and they validate as they go:
+// playing a property to the bank, say, takes the card out of your hand before
+// it decides the move is illegal. Committing that half-applied state is how
+// cards went missing from hands and the deck quietly drained. So every move
+// runs against a copy, and the room only keeps it if the move came back
+// without throwing.
+function applyMove(room, fn) {
+  const next = fn(structuredClone(room.gameState));
+  if (next) room.gameState = next;
+  return next ?? null;
 }
 
 function getRoomBySocket(socketId) {
@@ -210,7 +279,7 @@ function broadcastRematchStatus(room) {
 function emitRoomUpdate(room) {
   io.to(room.roomCode).emit('roomUpdate', {
     roomCode:  room.roomCode,
-    players:   room.players.map(p => ({ id: p.id, name: p.name, isBot: p.isBot ?? false })),
+    players:   room.players.map(p => ({ id: p.id, name: p.name, isBot: p.isBot ?? false, connected: p.connected !== false })),
     hostId:    room.hostId,
     gameType:  gameTypeOf(room),
     maxPlayers: GAME_TYPES[gameTypeOf(room)].max,
@@ -230,54 +299,82 @@ function isBotPlayer(room, playerId) {
   return room.players.some(p => p.id === playerId && p.isBot);
 }
 
-// A table of nothing but bots has nobody to play for, so it stops there.
-function hasHumanPlayer(room) {
-  return room.players.some(p => !p.isBot);
+// A table of nothing but bots — or one whose players have all dropped out —
+// has nobody to play for, so it stops there.
+function hasConnectedHuman(room) {
+  return room.players.some(p => !p.isBot && p.connected !== false);
 }
 
-// Returns the bot ID that should act next during a 'responding' phase, or null.
+// Whoever the table is waiting on is decided by the engine; here we only ask
+// whether that player is a bot we have to move for.
 function getPendingBotResponder(room) {
-  const state   = room.gameState;
-  const pending = state.pendingAction;
-  if (!pending || state.phase !== 'responding') return null;
-
   const botIds = new Set(room.players.filter(p => p.isBot).map(p => p.id));
+  return pendingResponders(room.gameState).find(id => botIds.has(id)) ?? null;
+}
 
-  if (pending.justSayNoBy) {
-    const initiatorId = pending.toId ?? pending.initiatorId;
-    const lastJSNWasInitiator = pending.justSayNoBy === initiatorId;
+// A bot step that throws used to take the whole server down: the AI calls sat
+// outside every try/catch, inside a setTimeout, where an exception is fatal to
+// the process and drops every player on every table. Nothing a bot does is
+// worth that, so each step is wrapped, and a bot that cannot move gets its turn
+// ended for it rather than being left to retry the same bad move forever.
+function runBotStep(room, botId, what, step) {
+  try {
+    step();
+    room.botFailures = 0;
+  } catch (err) {
+    room.botFailures = (room.botFailures ?? 0) + 1;
+    console.error(`Bot ${botId} ${what} error (${room.botFailures}):`, err.message);
+    if (!recoverStuckBot(room, botId)) return;   // table is beyond saving by us
+  }
 
-    if (pending.type === 'payment' || pending.type === 'slyDeal' || pending.type === 'dealBreaker') {
-      const otherSide = [pending.fromId, pending.toId].find(id => id && id !== pending.justSayNoBy);
-      return otherSide && botIds.has(otherSide) ? otherSide : null;
+  broadcastGameState(room);
+  if (!emitPropertyGameOver(room)) checkAndScheduleBotTurn(room);
+}
+
+// Last resort for a bot that cannot complete its move: end its turn, and if
+// even that is impossible, take it out of the game. Either way the table keeps
+// moving instead of freezing on a bot that will never act.
+function recoverStuckBot(room, botId) {
+  const state = room.gameState;
+
+  // Owing an answer: take the plain one. Conceding beats leaving the whole
+  // table waiting on a response that is never coming.
+  if (state?.phase === 'responding' && pendingResponders(state).includes(botId)) {
+    const conceding = state.pendingAction?.justSayNoBy ? 'acceptJustSayNo' : 'accept';
+    try {
+      applyMove(room, s => respondToAction(s, botId, conceding, {}));
+      return true;
+    } catch (err) {
+      console.error(`Bot ${botId} could not concede:`, err.message);
     }
-    if (pending.type === 'forceDeal') {
-      const otherSide = [pending.initiatorId, pending.targetId].find(id => id && id !== pending.justSayNoBy);
-      return otherSide && botIds.has(otherSide) ? otherSide : null;
-    }
-    if (pending.type === 'birthdayPayment' || pending.type === 'rentPayment') {
-      if (lastJSNWasInitiator) {
-        // Initiator counter-JSN'd — each remaining payer now needs to respond.
-        return pending.remaining?.find(id => botIds.has(id)) ?? null;
-      } else {
-        // A payer JSN'd — the initiator needs to counter or concede.
-        return botIds.has(initiatorId) ? initiatorId : null;
-      }
-    }
-    return null;
   }
 
-  if (pending.type === 'payment' || pending.type === 'slyDeal' || pending.type === 'dealBreaker') {
-    return botIds.has(pending.fromId) ? pending.fromId : null;
-  }
-  if (pending.type === 'forceDeal') {
-    return botIds.has(pending.targetId) ? pending.targetId : null;
-  }
-  if (pending.type === 'birthdayPayment' || pending.type === 'rentPayment') {
-    return pending.remaining?.find(id => botIds.has(id)) ?? null;
+  try {
+    applyMove(room, s => {
+      const next = endTurn(s, botId, getBotDiscards(s, botId));
+      drawForTurn(next, next.playerOrder[next.currentPlayerIndex]);
+      return next;
+    });
+    return true;
+  } catch (err) {
+    console.error(`Bot ${botId} could not end its turn:`, err.message);
   }
 
-  return null;
+  const botName = botNameOf(room, botId);
+  try {
+    applyMove(room, s => resignGame(s, botId));
+    room.players = room.players.filter(p => p.id !== botId);
+    io.to(room.roomCode).emit('playerResigned', { playerId: botId, playerName: botName });
+    emitRoomUpdate(room);
+    return true;
+  } catch (err) {
+    console.error(`Bot ${botId} could not be resigned:`, err.message);
+    return false;
+  }
+}
+
+function botNameOf(room, botId) {
+  return room.players.find(p => p.id === botId)?.name ?? 'Bot';
 }
 
 // Schedule the next bot action after every game-state broadcast.
@@ -286,133 +383,75 @@ function checkAndScheduleBotTurn(room) {
 
   if (room.botTimeout) { clearTimeout(room.botTimeout); room.botTimeout = null; }
   if (!room.gameState || room.gameState.phase === 'gameover') return;
+  // Nobody is watching an empty table — stop playing it out and let the room
+  // be swept up. A player who reconnects starts the bots again.
+  if (!hasConnectedHuman(room)) return;
+
+  const delay = (fn, ms) => { room.botTimeout = setTimeout(fn, ms); };
 
   if (room.gameState.phase === 'responding') {
     const responder = getPendingBotResponder(room);
-    if (responder) {
-      room.botTimeout = setTimeout(() => executeBotResponse(room, responder), BOT_RESPONSE_DELAY_MS);
-    }
+    if (responder) delay(() => executeBotResponse(room, responder), BOT_RESPONSE_DELAY_MS);
     return;
   }
 
   if (room.gameState.phase === 'movingWildcard') {
     const pending = room.gameState.pendingAction;
     if (pending?.playerId && isBotPlayer(room, pending.playerId)) {
-      room.botTimeout = setTimeout(() => executeBotWildcardOverflow(room, pending.playerId), BOT_RESPONSE_DELAY_MS);
+      delay(() => executeBotWildcardOverflow(room, pending.playerId), BOT_RESPONSE_DELAY_MS);
     }
     return;
   }
 
   if (room.gameState.phase === 'playing') {
     const currentId = room.gameState.playerOrder[room.gameState.currentPlayerIndex];
-    if (isBotPlayer(room, currentId)) {
-      room.botTimeout = setTimeout(() => executeBotTurn(room, currentId), BOT_TURN_DELAY_MS);
-    }
+    if (isBotPlayer(room, currentId)) delay(() => executeBotTurn(room, currentId), BOT_TURN_DELAY_MS);
   }
 }
 
 function executeBotWildcardOverflow(room, botId) {
+  room.botTimeout = null;
   const state = room.gameState;
   if (!state || state.phase !== 'movingWildcard') return;
   if (state.pendingAction?.playerId !== botId) return;
 
-  const move = getBotWildcardOverflowMove(state, botId);
-  if (!move) return;
-
-  try {
-    room.gameState = moveWildcard(state, botId, move.cardId, move.newColor);
-    broadcastGameState(room);
-    if (room.gameState.winner) {
-      const winner = room.players.find(p => p.id === room.gameState.winner);
-      io.to(room.roomCode).emit('gameOver', {
-        winnerId:   room.gameState.winner,
-        winnerName: winner?.name ?? room.gameState.playerNames?.[room.gameState.winner],
-      });
-    } else {
-      checkAndScheduleBotTurn(room);
-    }
-  } catch (err) {
-    console.error(`Bot ${botId} wildcard overflow error:`, err.message);
-  }
+  runBotStep(room, botId, 'wildcard overflow', () => {
+    const move = getBotWildcardOverflowMove(state, botId);
+    if (!move) throw new Error('no legal colour for the overflowing wildcard');
+    applyMove(room, s => moveWildcard(s, botId, move.cardId, move.newColor));
+  });
 }
 
 function executeBotTurn(room, botId) {
+  room.botTimeout = null;
   const state = room.gameState;
   if (!state || state.phase === 'gameover') return;
+  if (state.playerOrder[state.currentPlayerIndex] !== botId) return; // turn changed while the timeout was pending
 
-  const currentId = state.playerOrder[state.currentPlayerIndex];
-  if (currentId !== botId) return; // Turn changed while timeout was pending
-
-  const move = getBotMove(state, botId);
-
-  if (!move) {
-    // End the bot's turn
-    try {
-      const discardIds = getBotDiscards(state, botId);
-      room.gameState = endTurn(state, botId, discardIds);
-      const nextId = room.gameState.playerOrder[room.gameState.currentPlayerIndex];
-      drawForTurn(room.gameState, nextId);
-      broadcastGameState(room);
-      checkAndScheduleBotTurn(room);
-    } catch (err) {
-      console.error(`Bot ${botId} end-turn error:`, err.message);
-    }
-    return;
-  }
-
-  try {
-    room.gameState = playCard(state, botId, move.cardId, move.destination, move.options);
-    broadcastGameState(room);
-
-    if (room.gameState.winner) {
-      const winner = room.players.find(p => p.id === room.gameState.winner);
-      io.to(room.roomCode).emit('gameOver', {
-        winnerId:   room.gameState.winner,
-        winnerName: winner?.name ?? room.gameState.playerNames?.[room.gameState.winner],
+  runBotStep(room, botId, 'turn', () => {
+    const move = getBotMove(state, botId);
+    if (!move) {
+      applyMove(room, s => {
+        const next = endTurn(s, botId, getBotDiscards(s, botId));
+        drawForTurn(next, next.playerOrder[next.currentPlayerIndex]);
+        return next;
       });
       return;
     }
-
-    checkAndScheduleBotTurn(room);
-  } catch (err) {
-    console.error(`Bot ${botId} play error:`, err.message);
-    // Fall back to ending the turn so the game doesn't freeze
-    try {
-      const discardIds = getBotDiscards(room.gameState, botId);
-      room.gameState = endTurn(room.gameState, botId, discardIds);
-      const nextId = room.gameState.playerOrder[room.gameState.currentPlayerIndex];
-      drawForTurn(room.gameState, nextId);
-      broadcastGameState(room);
-      checkAndScheduleBotTurn(room);
-    } catch (e) {
-      console.error(`Bot ${botId} fallback end-turn error:`, e.message);
-    }
-  }
+    applyMove(room, s => playCard(s, botId, move.cardId, move.destination, move.options));
+  });
 }
 
 function executeBotResponse(room, botId) {
+  room.botTimeout = null;
   const state = room.gameState;
   if (!state || state.phase !== 'responding') return;
+  if (getPendingBotResponder(room) !== botId) return; // someone else answered first
 
-  const { response, options } = getBotResponse(state, botId);
-
-  try {
-    room.gameState = respondToAction(state, botId, response, options);
-    broadcastGameState(room);
-
-    if (room.gameState.winner) {
-      const winner = room.players.find(p => p.id === room.gameState.winner);
-      io.to(room.roomCode).emit('gameOver', {
-        winnerId:   room.gameState.winner,
-        winnerName: winner?.name ?? room.gameState.playerNames?.[room.gameState.winner],
-      });
-      return;
-    }
-
-    checkAndScheduleBotTurn(room);
-  } catch (err) {
-    console.error(`Bot ${botId} response error:`, err.message);
-  }
+  runBotStep(room, botId, 'response', () => {
+    const { response, options } = getBotResponse(state, botId);
+    applyMove(room, s => respondToAction(s, botId, response, options));
+  });
 }
 
 // ── Mah Jong bots ────────────────────────────────────────────
@@ -442,7 +481,7 @@ function nextMahjongBot(room) {
 }
 
 function scheduleMahjongBot(room) {
-  const waitingOn = room.gameState?.phase !== 'gameover' && hasHumanPlayer(room)
+  const waitingOn = room.gameState?.phase !== 'gameover' && hasConnectedHuman(room)
     ? nextMahjongBot(room)
     : null;
 
@@ -477,24 +516,23 @@ function executeMahjongBotMove(room, botId) {
   if (!state || state.phase === 'gameover') return;
   if (nextMahjongBot(room) !== botId) return;   // the table moved on while we waited
 
-  let next = null;
+  let moved = false;
   try {
-    next = applyMahjongBotMove(state, botId, getMahjongBotMove(state, botId));
+    moved = !!applyMove(room, s => applyMahjongBotMove(s, botId, getMahjongBotMove(s, botId)));
   } catch (err) {
     console.error(`Mah Jong bot ${botId} move error:`, err.message);
   }
 
-  if (!next) {
+  if (!moved) {
     // Fall back to a move that is always legal so the hand doesn't stall.
     try {
-      next = applyMahjongBotMove(state, botId, getMahjongBotFallbackMove(state, botId));
+      moved = !!applyMove(room, s => applyMahjongBotMove(s, botId, getMahjongBotFallbackMove(s, botId)));
     } catch (err) {
       console.error(`Mah Jong bot ${botId} fallback error:`, err.message);
     }
   }
-  if (!next) return;
+  if (!moved) return;
 
-  room.gameState = next;
   broadcastGameState(room);
   emitMahjongGameOver(room);
   checkAndScheduleBotTurn(room);
@@ -505,7 +543,20 @@ function executeMahjongBotMove(room, botId) {
 // ============================================================
 
 io.on('connection', socket => {
-  console.log(`Socket connected: ${socket.id}`);
+  console.log(`Socket connected: ${socket.id}${socket.recovered ? ' (recovered)' : ''}`);
+
+  // Socket.IO restored a session that briefly dropped: the player never really
+  // left, so pick their seat back up without a round trip through rejoinRoom.
+  if (socket.recovered) {
+    const room   = getRoomBySocket(socket.id);
+    const player = room && getPlayerBySocket(room, socket.id);
+    if (player) {
+      player.connected = true;
+      if (player.dropTimer) { clearTimeout(player.dropTimer); player.dropTimer = null; }
+      room.emptySince = null;
+      checkAndScheduleBotTurn(room);
+    }
+  }
 
   // ── Create Room ──────────────────────────────────────────
   socket.on('createRoom', ({ playerName, debug, gameType }) => {
@@ -523,7 +574,7 @@ io.on('connection', socket => {
       // Debug card setup only exists for Property Deal.
       debugMode: !!debug && type === 'property',
       gameState: null,
-      players: [{ id: playerId, name: playerName.trim(), socketId: socket.id }],
+      players: [{ id: playerId, name: playerName.trim(), socketId: socket.id, connected: true }],
     };
 
     socket.join(roomCode);
@@ -551,7 +602,7 @@ io.on('connection', socket => {
     }
 
     const playerId = uuidv4();
-    room.players.push({ id: playerId, name: playerName.trim(), socketId: socket.id });
+    room.players.push({ id: playerId, name: playerName.trim(), socketId: socket.id, connected: true });
 
     socket.join(code);
     socket.emit('joinedRoom', { playerId, roomCode: code });
@@ -593,8 +644,9 @@ io.on('connection', socket => {
       return;
     }
 
-    room.gameState   = createGame(playerIds);
-    room.started     = true;
+    room.gameState    = createGame(playerIds);
+    room.started      = true;
+    room.gameOverSent = false;
 
     // Store real player names so the game log uses them
     playerIds.forEach(id => {
@@ -628,9 +680,10 @@ io.on('connection', socket => {
       manualHands[pid] = (cardIds ?? []).map(id => CARD_MAP[id]).filter(Boolean);
     }
 
-    const playerIds = room.players.map(p => p.id);
-    room.gameState  = createGameDebug(playerIds, manualHands);
-    room.started    = true;
+    const playerIds   = room.players.map(p => p.id);
+    room.gameState    = createGameDebug(playerIds, manualHands);
+    room.started      = true;
+    room.gameOverSent = false;
 
     playerIds.forEach(id => {
       const p = room.players.find(p => p.id === id);
@@ -652,17 +705,9 @@ io.on('connection', socket => {
     if (!player) return emitError(socket, 'Player not found.');
 
     try {
-      room.gameState = playCard(room.gameState, player.id, cardId, destination, options);
+      applyMove(room, state => playCard(state, player.id, cardId, destination, options));
       broadcastGameState(room);
-      if (room.gameState.winner) {
-        const winner = room.players.find(p => p.id === room.gameState.winner);
-        io.to(room.roomCode).emit('gameOver', {
-          winnerId:   room.gameState.winner,
-          winnerName: winner?.name ?? room.gameState.playerNames?.[room.gameState.winner],
-        });
-      } else {
-        checkAndScheduleBotTurn(room);
-      }
+      if (!emitPropertyGameOver(room)) checkAndScheduleBotTurn(room);
     } catch (err) {
       emitError(socket, err.message);
     }
@@ -677,22 +722,14 @@ io.on('connection', socket => {
     if (!player) return emitError(socket, 'Player not found.');
 
     try {
-      room.gameState = respondToAction(
-        room.gameState,
+      applyMove(room, state => respondToAction(
+        state,
         player.id,
         response,
         { cardId, selectedCardIds: options.selectedCardIds ?? [], ...options }
-      );
+      ));
       broadcastGameState(room);
-      if (room.gameState.winner) {
-        const winner = room.players.find(p => p.id === room.gameState.winner);
-        io.to(room.roomCode).emit('gameOver', {
-          winnerId:   room.gameState.winner,
-          winnerName: winner?.name ?? room.gameState.playerNames?.[room.gameState.winner],
-        });
-      } else {
-        checkAndScheduleBotTurn(room);
-      }
+      if (!emitPropertyGameOver(room)) checkAndScheduleBotTurn(room);
     } catch (err) {
       emitError(socket, err.message);
     }
@@ -707,17 +744,9 @@ io.on('connection', socket => {
     if (!player) return emitError(socket, 'Player not found.');
 
     try {
-      room.gameState = moveWildcard(room.gameState, player.id, cardId, newColor);
+      applyMove(room, state => moveWildcard(state, player.id, cardId, newColor));
       broadcastGameState(room);
-      if (room.gameState.winner) {
-        const winner = room.players.find(p => p.id === room.gameState.winner);
-        io.to(room.roomCode).emit('gameOver', {
-          winnerId:   room.gameState.winner,
-          winnerName: winner?.name ?? room.gameState.playerNames?.[room.gameState.winner],
-        });
-      } else {
-        checkAndScheduleBotTurn(room);
-      }
+      if (!emitPropertyGameOver(room)) checkAndScheduleBotTurn(room);
     } catch (err) {
       emitError(socket, err.message);
     }
@@ -732,11 +761,13 @@ io.on('connection', socket => {
     if (!player) return emitError(socket, 'Player not found.');
 
     try {
-      room.gameState = endTurn(room.gameState, player.id, discardIds);
-      const nextId = room.gameState.playerOrder[room.gameState.currentPlayerIndex];
-      drawForTurn(room.gameState, nextId);
+      applyMove(room, state => {
+        const next = endTurn(state, player.id, discardIds);
+        drawForTurn(next, next.playerOrder[next.currentPlayerIndex]);
+        return next;
+      });
       broadcastGameState(room);
-      checkAndScheduleBotTurn(room);
+      if (!emitPropertyGameOver(room)) checkAndScheduleBotTurn(room);
     } catch (err) {
       emitError(socket, err.message);
     }
@@ -767,29 +798,23 @@ io.on('connection', socket => {
     }
 
     try {
-      room.gameState = resignGame(room.gameState, player.id);
-
-      if (room.gameState.phase !== 'gameover' && room.gameState.playerOrder.length > 0) {
-        const currentId = room.gameState.playerOrder[room.gameState.currentPlayerIndex];
-        try { drawForTurn(room.gameState, currentId); } catch(e) {}
-      }
+      applyMove(room, state => {
+        const next = resignGame(state, player.id);
+        if (next.phase !== 'gameover' && next.playerOrder.length > 0) {
+          try { drawForTurn(next, next.playerOrder[next.currentPlayerIndex]); } catch { /* the next player draws on their turn instead */ }
+        }
+        return next;
+      });
 
       broadcastGameState(room);
 
-      if (room.gameState.phase !== 'gameover') checkAndScheduleBotTurn(room);
-
-      if (room.gameState.winner) {
-        const winner = room.players.find(p => p.id === room.gameState.winner);
-        io.to(room.roomCode).emit('gameOver', {
-          winnerId:   room.gameState.winner,
-          winnerName: winner?.name ?? room.gameState.playerNames?.[room.gameState.winner] ?? 'Unknown',
-          reason:     'resignation',
-        });
-      } else {
+      if (room.gameState.winner) room.gameState.endReason = 'resignation';
+      if (!emitPropertyGameOver(room)) {
         io.to(room.roomCode).emit('playerResigned', {
           playerId:   player.id,
           playerName: player.name,
         });
+        checkAndScheduleBotTurn(room);
       }
     } catch (err) {
       emitError(socket, err.message);
@@ -944,7 +969,10 @@ io.on('connection', socket => {
     if (!player) return socket.emit('rejoinFailed', { message: 'Player not found in room.' });
 
     // Update the player's socket mapping and re-join the Socket.IO room
-    player.socketId = socket.id;
+    player.socketId  = socket.id;
+    player.connected = true;
+    if (player.dropTimer) { clearTimeout(player.dropTimer); player.dropTimer = null; }
+    room.emptySince = null;
     socket.join(code);
 
     // Restore session state for this client
@@ -971,6 +999,9 @@ io.on('connection', socket => {
       }
     }
 
+    // Bots stop while a table has nobody watching — start them again.
+    checkAndScheduleBotTurn(room);
+
     console.log(`${player.name} rejoined room ${code}`);
   });
 
@@ -982,22 +1013,33 @@ io.on('connection', socket => {
     const player = getPlayerBySocket(room, socket.id);
     if (!player) return;
 
+    player.connected = false;
+    room.emptySince  = hasConnectedHuman(room) ? null : Date.now();
     console.log(`${player.name} disconnected from room ${room.roomCode}`);
 
-    if (!room.started) {
-      room.players = room.players.filter(p => p.socketId !== socket.id);
-      if (room.players.length === 0) {
-        delete rooms[room.roomCode];
-      } else {
-        if (room.hostId === player.id) room.hostId = room.players[0].id;
-        emitRoomUpdate(room);
-      }
-    } else {
+    if (room.started) {
       io.to(room.roomCode).emit('playerDisconnected', {
         playerId:   player.id,
         playerName: player.name,
       });
+      // Nobody left to play for: stop the bots until someone comes back.
+      if (!hasConnectedHuman(room)) checkAndScheduleBotTurn(room);
+      return;
     }
+
+    // In the lobby a blink of a connection used to cost you your seat. Hold it
+    // for a moment so a reconnect lands you back where you were.
+    if (player.dropTimer) clearTimeout(player.dropTimer);
+    player.dropTimer = setTimeout(() => {
+      if (player.connected || rooms[room.roomCode] !== room) return;
+      room.players = room.players.filter(p => p.id !== player.id);
+      if (room.players.every(p => p.isBot)) {
+        closeRoom(room, 'lobby emptied');
+      } else {
+        if (room.hostId === player.id) room.hostId = room.players.find(p => !p.isBot)?.id ?? room.players[0].id;
+        emitRoomUpdate(room);
+      }
+    }, LOBBY_GRACE_MS);
   });
 });
 

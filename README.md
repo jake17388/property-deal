@@ -94,6 +94,20 @@ one — you Deal Breaker the matching set off someone else — the wildcard swit
 to its other colour on its own; an all-colour wild has no other colour to fall
 back on, so you're asked which one it should become.
 
+**A move the table won't allow** — a property on the bank, rent on a colour you
+don't own — comes back as a message and changes nothing: the card goes back in
+your hand where it was.
+
+**If the deck runs out** and the discard pile has nothing left to reshuffle
+into it, the game is called rather than passing the turn round an empty table
+for ever. Whoever has the most complete sets takes it, with total value
+breaking a tie, and a dead heat is a draw.
+
+**If you drop off** — the phone sleeps, the tunnel eats the signal — the table
+waits for you. The bots stop where they are, your seat is held, and picking the
+app back up puts you on the same board with the same hand. Your room is kept
+for five minutes after the last player leaves it.
+
 ## How to play — Mah Jong
 
 **The set** (160 tiles): three suits — green, red and black — with four of each number
