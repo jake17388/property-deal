@@ -19,6 +19,9 @@ export const EMPTY_HAND_DRAW       = 5;
 export const SETS_TO_WIN           = 3;
 export const BIRTHDAY_AMOUNT       = 2;
 export const DEBT_COLLECTOR_AMOUNT = 5;
+// The whole log travels to every client on every state broadcast, so it keeps
+// only the recent entries — the board only ever shows the tail of it anyway.
+export const MAX_LOG_ENTRIES       = 120;
 
 // ============================================================
 // GAME INITIALIZATION
@@ -130,8 +133,57 @@ export function drawForTurn(state, playerId) {
   const amount = player.hand.length === 0 ? EMPTY_HAND_DRAW : CARDS_PER_DRAW;
   const drawn  = drawCards(state, amount);
   player.hand.push(...drawn);
-  addLog(state, `${playerId} drew ${drawn.length} card(s).`);
+
+  if (drawn.length > 0) {
+    state.deadTurns = 0;
+    addLog(state, `${playerId} drew ${drawn.length} card(s).`);
+  } else {
+    // Deck and discard are both empty. A turn where nobody draws and nobody
+    // plays moves nothing, and once that has gone right round the table the
+    // game cannot progress again — end it instead of passing the turn forever.
+    state.deadTurns = (state.deadTurns ?? 0) + 1;
+    addLog(state, `${playerId} could not draw — the deck is empty.`);
+    if (state.deadTurns >= state.playerOrder.length) endOnEmptyDeck(state);
+  }
+
   return { state, drawn };
+}
+
+// Total face value a player is sitting on, used to separate players on the
+// same number of complete sets when the deck runs out.
+function totalHoldings(state, playerId) {
+  const player = state.players[playerId];
+  if (!player) return 0;
+  const properties = Object.values(player.properties).flatMap(g => [
+    ...g.cards,
+    ...(g.houseCard ? [g.houseCard] : []),
+    ...(g.hotelCard ? [g.hotelCard] : []),
+  ]);
+  return sumValues(player.bank) + sumValues(properties);
+}
+
+// Nobody can draw and nobody can play: the player with the most complete sets
+// takes it, broken by total value, and a dead heat is a draw.
+function endOnEmptyDeck(state) {
+  if (state.phase === 'gameover') return;
+
+  const ranked = [...state.playerOrder].sort((a, b) =>
+    countCompleteSets(state, b) - countCompleteSets(state, a) ||
+    totalHoldings(state, b)     - totalHoldings(state, a)
+  );
+
+  const [best, next] = ranked;
+  const drawn = next !== undefined
+    && countCompleteSets(state, best) === countCompleteSets(state, next)
+    && totalHoldings(state, best)     === totalHoldings(state, next);
+
+  state.phase         = 'gameover';
+  state.pendingAction = null;
+  state.endReason     = 'deckEmpty';
+  state.winner        = drawn ? null : (best ?? null);
+  addLog(state, drawn || !best
+    ? 'The deck ran out with nothing left to play — the game is a draw.'
+    : `The deck ran out — ${best} wins on properties.`);
 }
 
 export function endTurn(state, playerId, discardIds = []) {
@@ -229,13 +281,22 @@ export function playCard(state, playerId, cardId, destination, options = {}) {
   if (cardIdx === -1) throw new Error(`Card ${cardId} not found in hand.`);
   const card = player.hand[cardIdx];
 
+  state.deadTurns = 0;   // a card played is progress — see drawForTurn
+
+  // The card leaves the hand before the move is fully validated, so a rejected
+  // move has to put it back — otherwise dropping a property on the bank simply
+  // destroyed the card. Anything a half-finished action changed beyond this is
+  // undone by the caller, which runs moves against a copy of the state.
   player.hand.splice(cardIdx, 1);
-
-  if (destination === 'bank')     return playToBank(state, player, card);
-  if (destination === 'property') return playToProperty(state, player, card, options);
-  if (destination === 'action')   return playAsAction(state, player, card, options);
-
-  throw new Error(`Unknown destination: ${destination}`);
+  try {
+    if (destination === 'bank')     return playToBank(state, player, card);
+    if (destination === 'property') return playToProperty(state, player, card, options);
+    if (destination === 'action')   return playAsAction(state, player, card, options);
+    throw new Error(`Unknown destination: ${destination}`);
+  } catch (err) {
+    player.hand.splice(cardIdx, 0, card);
+    throw err;
+  }
 }
 
 function playToBank(state, player, card) {
@@ -473,8 +534,42 @@ function resolveHotel(state, player, card, { targetColor } = {}) {
 // RESPONDING TO ACTIONS
 // ============================================================
 
+// Everyone the table is waiting on right now, in the order they have to act.
+// A response from anyone else is not a legal move: it used to slip through and
+// resolve against the wrong player, which left the real one still owing.
+export function pendingResponders(state) {
+  const pending = state.pendingAction;
+  if (!pending || state.phase !== 'responding') return [];
+
+  const initiatorId = pending.toId ?? pending.initiatorId;
+  const twoSided    = ['payment', 'slyDeal', 'dealBreaker'].includes(pending.type);
+  const multiPayer  = ['birthdayPayment', 'rentPayment'].includes(pending.type);
+
+  if (pending.justSayNoBy) {
+    // Whoever did not play the last Just Say No is on the hook to counter it.
+    if (twoSided) return [pending.fromId, pending.toId].filter(id => id && id !== pending.justSayNoBy);
+    if (pending.type === 'forceDeal') {
+      return [pending.initiatorId, pending.targetId].filter(id => id && id !== pending.justSayNoBy);
+    }
+    if (multiPayer) {
+      return pending.justSayNoBy === initiatorId
+        ? [...(pending.remaining ?? [])]          // initiator countered — payers owe again
+        : [initiatorId].filter(Boolean);          // a payer said no — initiator answers
+    }
+    return [];
+  }
+
+  if (twoSided)                   return [pending.fromId].filter(Boolean);
+  if (pending.type === 'forceDeal') return [pending.targetId].filter(Boolean);
+  if (multiPayer)                 return [...(pending.remaining ?? [])];
+  return [];
+}
+
 export function respondToAction(state, responderId, response, options = {}) {
   if (state.phase !== 'responding') throw new Error('No action to respond to.');
+  if (!pendingResponders(state).includes(responderId)) {
+    throw new Error('It is not your turn to respond.');
+  }
 
   if (response === 'justSayNo') {
     return playJustSayNo(state, responderId, options.cardId);
@@ -1034,4 +1129,7 @@ function addLog(state, message) {
     });
   }
   state.log.push({ time: Date.now(), message: readable });
+  if (state.log.length > MAX_LOG_ENTRIES) {
+    state.log.splice(0, state.log.length - MAX_LOG_ENTRIES);
+  }
 }

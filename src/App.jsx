@@ -132,18 +132,18 @@ export default function App() {
           {/* Winner */}
           <div style={{ textAlign: 'center', marginBottom: 24 }}>
             <div style={{ fontSize: 56, marginBottom: 8 }}>
-              {gameOver.reason === 'wall' ? '🀫' : '🏆'}
+              {gameOver.reason === 'wall' ? '🀫' : gameOver.winnerName ? '🏆' : '🃏'}
             </div>
             <h1 style={{ fontSize: 24, fontWeight: 800, color: '#111827', marginBottom: 4 }}>
-              {gameOver.reason === 'wall' || !gameOver.winnerName
-                ? 'Wall game — nobody won'
-                : gameOver.reason === 'mahjong'
-                  ? `${gameOver.winnerName} called Mah Jong!`
-                  : `${gameOver.winnerName} wins!`}
+              {gameOver.reason === 'wall'      ? 'Wall game — nobody won'
+                : !gameOver.winnerName         ? 'Nobody won'
+                : gameOver.reason === 'mahjong' ? `${gameOver.winnerName} called Mah Jong!`
+                : `${gameOver.winnerName} wins!`}
             </h1>
             <p style={{ fontSize: 13, color: '#6b7280' }}>
               {gameOver.reason === 'resignation' ? 'Game ended by resignation'
-                : gameOver.reason === 'wall'     ? 'The wall ran out before anyone completed a hand'
+                : gameOver.reason === 'wall'      ? 'The wall ran out before anyone completed a hand'
+                : gameOver.reason === 'deckEmpty' ? 'The deck ran out — most complete sets takes it'
                 : 'Great game everyone!'}
             </p>
           </div>

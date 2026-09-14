@@ -3,6 +3,15 @@ import { ACTIONS_PER_TURN, MAX_HAND_SIZE } from './engine.js';
 
 export const BOT_NAMES = ['Elon', 'Jeff', 'Warren', 'Bill'];
 
+// A colour takes another card when its set is short, or when a wildcard in it
+// can be moved on to make room.
+function hasRoomFor(player, color) {
+  const group = player.properties[color];
+  if (!group) return true;
+  if (group.cards.length < (SET_SIZE[color] ?? 0)) return true;
+  return group.cards.some(c => c.type === CARD_TYPE.WILDCARD);
+}
+
 // Returns the next card play for the bot, or null to signal end-of-turn.
 export function getBotMove(state, botId) {
   const bot = state.players[botId];
@@ -12,8 +21,10 @@ export function getBotMove(state, botId) {
   const hand = bot.hand;
   const opponents = state.playerOrder.filter(id => id !== botId);
 
-  // 1. Standard property cards — always play them
-  const propCard = hand.find(c => c.type === CARD_TYPE.PROPERTY);
+  // 1. Standard property cards — play them, unless that colour is already a
+  // complete set with no wildcard to shuffle out, which the engine rejects.
+  const propCard = hand.find(c =>
+    c.type === CARD_TYPE.PROPERTY && hasRoomFor(bot, c.color));
   if (propCard) {
     return { cardId: propCard.id, destination: 'property', options: {} };
   }
@@ -173,12 +184,14 @@ export function getBotDiscards(state, botId) {
 // ── Decision helpers ─────────────────────────────────────────────────────────
 
 function pickWildcardColor(card, bot) {
-  if (card.colors.length === 1) return card.colors[0];
+  // A set that is already full has nowhere to put this, so it is not a choice.
+  const options = card.colors.filter(color => hasRoomFor(bot, color));
+  if (options.length <= 1) return options[0] ?? null;
 
   let best = null;
   let bestScore = -1;
 
-  for (const color of card.colors) {
+  for (const color of options) {
     const group = bot.properties[color];
     const have  = group ? group.cards.length : 0;
     const need  = SET_SIZE[color] ?? 3;
@@ -187,7 +200,7 @@ function pickWildcardColor(card, bot) {
     if (score > bestScore) { bestScore = score; best = color; }
   }
 
-  return best ?? card.colors[0];
+  return best ?? options[0];
 }
 
 function findDealBreakerTarget(state, botId) {
