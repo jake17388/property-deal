@@ -584,13 +584,28 @@ export function respondToAction(state, responderId, response, options = {}) {
       // Initiator counter-JSN'd successfully — target is accepting it, so the original action PROCEEDS.
       pending.justSayNoBy = null;
       return resolveAccept(state, responderId, []);
-    } else {
-      // Target's JSN succeeded — initiator accepted it, so the original action is CANCELLED.
-      state.pendingAction = null;
-      state.phase = 'playing';
-      addLog(state, `Just Say No! The action was blocked.`);
+    }
+
+    // A payer's Just Say No excuses that payer and nobody else: on a rent or a
+    // birthday the rest of the table still owes. Cancelling the whole demand
+    // here used to let one player's card pay everyone's bill.
+    const blockedId = pending.justSayNoBy;
+    if (['birthdayPayment', 'rentPayment'].includes(pending.type)) {
+      pending.justSayNoBy = null;
+      pending.remaining   = (pending.remaining ?? []).filter(id => id !== blockedId);
+      addLog(state, `Just Say No! ${blockedId} does not pay.`);
+      if (pending.remaining.length === 0) {
+        state.pendingAction = null;
+        state.phase = 'playing';
+      }
       return state;
     }
+
+    // Target's JSN succeeded — initiator accepted it, so the original action is CANCELLED.
+    state.pendingAction = null;
+    state.phase = 'playing';
+    addLog(state, `Just Say No! The action was blocked.`);
+    return state;
   }
 
   if (response === 'accept') {
@@ -734,7 +749,9 @@ function sellableGroups(payer) {
 // Picks the cards a player hands over when they accept without choosing any —
 // every bot payment, and humans who accept the auto-selection. Covers the debt
 // while paying as little over it as possible, spending bank money first.
-function selectAutoPayment(payer, amount) {
+// Exported so a bot can see what a demand would actually cost it before
+// deciding whether to answer with Just Say No.
+export function selectAutoPayment(payer, amount) {
   if (amount <= 0) return [];
 
   const fromBank = minOverpaySubset(payer.bank, amount);

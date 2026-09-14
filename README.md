@@ -84,7 +84,17 @@ as you have two actions left, the rent popup offers a **×2** option that plays
 your Double the Rent card alongside it.
 
 **Just Say No** still works as a prompt — when someone plays an action against
-you, the banner at the top offers it (and a counter, if they counter back).
+you, the banner at the top offers it (and a counter, if they counter back). On a
+rent or a birthday it only lets the player who played it off the hook; everyone
+else at the table still pays.
+
+The bots play theirs too, and they spend them on what they're worth. A Deal
+Breaker on a finished set always gets a no; a $2M birthday they can settle out
+of the bank never does. In between they price the action — what the card being
+stolen was doing for a set they're building, whether a demand would force them
+to sell off the board, whether letting it through hands someone their third set
+— and say no when it's worth more than the card. They'll counter your counter,
+too, when the prize is big enough.
 
 Everything each player has banked is stacked into a single pile on their board;
 the pile's total sits beside that player's name in their board header, where the

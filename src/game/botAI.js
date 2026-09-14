@@ -1,5 +1,5 @@
-import { CARD_TYPE, COLOR, SET_SIZE, RENT_VALUES, BUILDING_BONUS } from './cards.js';
-import { ACTIONS_PER_TURN, MAX_HAND_SIZE } from './engine.js';
+import { CARD_TYPE, COLOR, SET_SIZE, RENT_VALUES, BUILDING_BONUS, getCardColor } from './cards.js';
+import { ACTIONS_PER_TURN, MAX_HAND_SIZE, SETS_TO_WIN, selectAutoPayment } from './engine.js';
 
 export const BOT_NAMES = ['Elon', 'Jeff', 'Warren', 'Bill'];
 
@@ -118,17 +118,26 @@ export function getBotMove(state, botId) {
 }
 
 // Returns how the bot responds to a pending action targeting it.
-export function getBotResponse(state, _botId) {
+export function getBotResponse(state, botId) {
   const pending = state.pendingAction;
   if (!pending) return { response: 'accept', options: {} };
 
-  // When a JSN is in play, the bot always accepts it (bots don't counter-JSN)
+  const jsn = state.players[botId]?.hand.find(c => c.action === 'justSayNo');
+
+  // A Just Say No is already on the table: the bot either counters it with one
+  // of its own or lets it stand.
   if (pending.justSayNoBy) {
+    if (jsn && worthSayingNo(state, botId, pending, { countering: true })) {
+      return { response: 'justSayNo', options: { cardId: jsn.id } };
+    }
     return { response: 'acceptJustSayNo', options: {} };
   }
 
-  // For all other actions (payment, sly deal, deal breaker, force deal):
-  // accept and let the engine auto-select which cards to pay with
+  if (jsn && worthSayingNo(state, botId, pending, { countering: false })) {
+    return { response: 'justSayNo', options: { cardId: jsn.id } };
+  }
+
+  // Otherwise accept and let the engine auto-select which cards to pay with.
   return { response: 'accept', options: { selectedCardIds: [] } };
 }
 
@@ -179,6 +188,223 @@ export function getBotDiscards(state, botId) {
   });
 
   return sorted.slice(0, excess).map(c => c.id);
+}
+
+// ── Just Say No ──────────────────────────────────────────────────────────────
+// There are only three Just Say No cards in the whole deck, so the one spent on
+// a $2M birthday is the one missing when a Deal Breaker takes a finished set.
+// The bot therefore prices every action aimed at it — what it stands to lose,
+// or, when it is the one being said no to, what it stands to miss out on — and
+// only answers when that price clears the bar.
+
+// What an action has to be worth before a Just Say No is spent on it: a shade
+// more than a Debt Collector's $5M settled out of the bank.
+const JSN_BAR = 7;
+
+// Cash is worth less than board space — money comes round again, a property out
+// of a set you are two thirds of the way through does not.
+const MONEY_WEIGHT = 0.75;
+
+// A complete set is a third of the game, worth far more than the cards in it.
+const SET_PREMIUM = 10;
+
+function worthSayingNo(state, botId, pending, { countering }) {
+  const initiatorId = pending.toId ?? pending.initiatorId;
+
+  // Countering as the initiator pushes the bot's own action back through, so
+  // what is at stake there is the prize; as a target, it is the damage.
+  const stake = botId === initiatorId
+    ? prizeAtStake(state, botId, pending)
+    : costOfBeingHit(state, botId, pending);
+
+  if (stake === Infinity) return true; // the game itself is on this card
+
+  // A spare card in hand buys a freer trigger finger; a counter spends a second
+  // card on a fight already half lost, so it has to be worth more.
+  const spare = state.players[botId].hand.filter(c => c.action === 'justSayNo').length > 1;
+  const bar   = JSN_BAR - (spare ? 2 : 0) + (countering ? 3 : 0);
+
+  return stake >= bar;
+}
+
+// What letting this action resolve would cost the bot it is aimed at.
+function costOfBeingHit(state, botId, pending) {
+  const bot         = state.players[botId];
+  const initiatorId = pending.toId ?? pending.initiatorId;
+
+  switch (pending.type) {
+    case 'dealBreaker': {
+      const group = bot.properties[pending.targetColor];
+      if (!group) return 0;
+      if (wouldWin(state, initiatorId, group.cards)) return Infinity;
+      return setValue(bot, pending.targetColor);
+    }
+
+    case 'slyDeal':
+      return stolenCardCost(state, bot, initiatorId, pending.targetCardId);
+
+    case 'forceDeal': {
+      // A swap hands something back, which is worth having when it lands in a
+      // colour the bot is building.
+      const offered = findBoardCard(state.players[initiatorId], pending.offeredCardId)?.card;
+      return stolenCardCost(state, bot, initiatorId, pending.targetCardId) - incomingValue(bot, offered);
+    }
+
+    case 'payment':
+    case 'rentPayment':
+    case 'birthdayPayment': {
+      const { cost, propertyCards } = paymentPreview(bot, pending.amount);
+      if (propertyCards.length > 0 && wouldWin(state, initiatorId, propertyCards)) return Infinity;
+      return cost;
+    }
+
+    default:
+      return 0;
+  }
+}
+
+// What the bot gives up by letting someone else's Just Say No stand on an
+// action of its own.
+function prizeAtStake(state, botId, pending) {
+  const bot    = state.players[botId];
+  const victim = state.players[pending.fromId ?? pending.targetId];
+
+  switch (pending.type) {
+    case 'dealBreaker': {
+      const group = victim?.properties[pending.targetColor];
+      if (!group) return 0;
+      if (wouldWin(state, botId, group.cards)) return Infinity;
+      return setValue(victim, pending.targetColor);
+    }
+
+    case 'slyDeal':
+    case 'forceDeal': {
+      const card = findBoardCard(victim, pending.targetCardId)?.card;
+      if (!card) return 0;
+      if (wouldWin(state, botId, [card])) return Infinity;
+      const given = pending.type === 'forceDeal' ? propertyLossCost(bot, pending.offeredCardId) : 0;
+      return incomingValue(bot, card) - given;
+    }
+
+    case 'payment':
+      return MONEY_WEIGHT * (pending.amount ?? 0);
+
+    // Countering here puts every payer still on the hook back on it.
+    case 'rentPayment':
+    case 'birthdayPayment':
+      return MONEY_WEIGHT * (pending.amount ?? 0) * (pending.remaining?.length ?? 1);
+
+    default:
+      return 0;
+  }
+}
+
+// Where a card sits on a player's board.
+function findBoardCard(player, cardId) {
+  for (const [color, group] of Object.entries(player?.properties ?? {})) {
+    const card = group.cards.find(c => c.id === cardId);
+    if (card) return { color, group, card };
+  }
+  return null;
+}
+
+// What losing one property card costs: its face value, the rent it was earning,
+// and how far it sets the colour back.
+function propertyLossCost(player, cardId) {
+  const found = findBoardCard(player, cardId);
+  if (!found) return 0;
+  const { color, group, card } = found;
+
+  const have      = group.cards.length;
+  const rentAfter = have > 1 ? (RENT_VALUES[color]?.[have - 2] ?? 0) : 0;
+
+  return (card.value ?? 0) + (computeRent(color, group) - rentAfter) + setbackCost(color, have);
+}
+
+// Losing a card off a nearly-finished set of a good colour hurts far more than
+// losing one off a lone cheap property, so the setback is priced in the rent the
+// finished set would have printed.
+function setbackCost(color, have) {
+  const need = SET_SIZE[color] ?? 3;
+  const full = RENT_VALUES[color]?.[need - 1] ?? 0;
+  if (have >= need - 1) return full;
+  if (have >= need - 2) return full / 2;
+  return 0;
+}
+
+// The same pricing read forwards: what a card coming the other way is worth to
+// this player, which is most when it is the one that all but finishes a set.
+function incomingValue(player, card) {
+  if (!card) return 0;
+  const color = getCardColor(card);
+  if (!color) return card.value ?? 0;
+  const have = player.properties[color]?.cards.length ?? 0;
+  return (card.value ?? 0) + setbackCost(color, have + 1);
+}
+
+// A whole set: the cards, its buildings, the rent it prints, and the premium for
+// being one of the three that win the game.
+function setValue(player, color) {
+  const group = player.properties[color];
+  if (!group) return 0;
+  const cards     = group.cards.reduce((sum, c) => sum + (c.value ?? 0), 0);
+  const buildings = (group.hasHouse ? BUILDING_BONUS.house : 0) + (group.hasHotel ? BUILDING_BONUS.hotel : 0);
+  return cards + buildings + computeRent(color, group) + SET_PREMIUM;
+}
+
+// A theft costs what the card was worth here, plus a share of what it is worth
+// to the player walking off with it.
+function stolenCardCost(state, bot, thiefId, cardId) {
+  const found = findBoardCard(bot, cardId);
+  if (!found) return 0;
+  if (wouldWin(state, thiefId, [found.card])) return Infinity;
+  return propertyLossCost(bot, cardId) + incomingValue(state.players[thiefId], found.card) / 2;
+}
+
+// What settling a demand would actually take out of the bot. The engine chooses
+// the cards when a bot accepts, so this asks it rather than guessing. Several
+// cards off one colour each carry that colour's setback, which overstates the
+// damage a little — and only in the case where the bot is being stripped to the
+// board, which is exactly when saying no is worth it.
+function paymentPreview(player, amount) {
+  const paying = new Set(selectAutoPayment(player, amount ?? 0));
+  if (paying.size === 0) return { cost: 0, propertyCards: [] };
+
+  const propertyCards = [];
+  let cost = 0;
+
+  for (const card of player.bank) {
+    if (paying.has(card.id)) cost += MONEY_WEIGHT * (card.value ?? card.bankValue ?? 0);
+  }
+
+  for (const group of Object.values(player.properties)) {
+    for (const card of group.cards) {
+      if (!paying.has(card.id)) continue;
+      propertyCards.push(card);
+      cost += propertyLossCost(player, card.id);
+    }
+    if (group.houseCard && paying.has(group.houseCard.id)) cost += BUILDING_BONUS.house;
+    if (group.hotelCard && paying.has(group.hotelCard.id)) cost += BUILDING_BONUS.hotel;
+  }
+
+  return { cost, propertyCards };
+}
+
+// Would these cards landing on that player's board win them the game? Nothing is
+// worth a Just Say No more than stopping that.
+function wouldWin(state, playerId, incoming) {
+  const player = state.players[playerId];
+  if (!player) return false;
+
+  const counts = {};
+  for (const [color, group] of Object.entries(player.properties)) counts[color] = group.cards.length;
+  for (const card of incoming) {
+    const color = getCardColor(card);
+    if (color) counts[color] = (counts[color] ?? 0) + 1;
+  }
+
+  const sets = Object.entries(counts).filter(([color, n]) => n >= (SET_SIZE[color] ?? 3)).length;
+  return sets >= SETS_TO_WIN;
 }
 
 // ── Decision helpers ─────────────────────────────────────────────────────────
